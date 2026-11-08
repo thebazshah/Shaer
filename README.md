@@ -1,5 +1,11 @@
 # Shaer
 
+> **Fork note.** This is a fork of the original repository, https://github.com/AhmaddAbbass/Shaer
+> (forked at commit `bba73cb`). It adds [`apple/`](./apple/README.md), a port of the SFT training,
+> generation and evaluation workflow to Apple Silicon (MLX), because the official path needs CUDA
+> (bitsandbytes NF4, paged 8-bit AdamW, vLLM). Everything outside `apple/` is unchanged.
+> See [Running on Apple Silicon](#running-on-apple-silicon).
+
 **Shaer** is a controllable classical Arabic poetry generation project built on top of `Navid-AI/Yehia-7B-preview`. The paper setup conditions generation on:
 
 - `base_meter`
@@ -195,3 +201,20 @@ Final reported result notes:
 ## License and dataset provenance
 
 The repository code is released under [Apache-2.0](./LICENSE). The derived training datasets use mixed licensing: the separable Shaer descriptions and annotations are Apache-2.0, while the underlying Ashaar poem text remains subject to Ashaar's non-commercial/research-use restrictions. Users must comply with both components when using the released datasets.
+
+## Running on Apple Silicon
+
+The [`apple/`](./apple/README.md) folder of this fork runs the same recipe on a Mac with Apple Silicon
+(target: Mac mini M4, 24 GB). It uses the official data, prompts and hyperparameters, and the
+official, unmodified evaluator, so results are directly comparable with the paper:
+
+```bash
+cd apple
+./setup_apple.sh
+. .venv-apple/bin/activate
+./run_all.sh all      # E0 re-score released poems, E2 base model, E1 released adapter, E3 re-train, then collect
+```
+
+See [`apple/README.md`](./apple/README.md) for the list of changes and the known differences
+(MLX affine 4-bit instead of NF4, 32-bit AdamW states).
+

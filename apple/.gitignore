@@ -1,0 +1,6 @@
+.venv-apple/
+models/
+data/
+runs/
+logs/
+__pycache__/

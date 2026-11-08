@@ -1,0 +1,26 @@
+# Apple Silicon (macOS, arm64) requirements for the MLX port of Shaer.
+# Replaces the CUDA-only stack of the top-level requirements.txt (vllm, bitsandbytes, CUDA torch).
+# Install: python3 -m venv .venv-apple && . .venv-apple/bin/activate && pip install -r requirements-apple.txt
+
+# --- Training and generation (Metal GPU) --------------------------------------
+mlx==0.32.4
+mlx-lm==0.32.2
+transformers==5.22.2
+datasets==5.1.0
+huggingface_hub
+safetensors
+sentencepiece
+numpy
+
+# --- Adapter merge for E1 and the official evaluator (CPU) ---------------------
+torch==2.15.0
+peft
+
+# --- Official evaluator / LLM judge dependencies -------------------------------
+python-dotenv
+httpx
+pyyaml
+curl_cffi
+
+# --- Figures --------------------------------------------------------------------
+matplotlib

@@ -1,0 +1,66 @@
+% ---------------------------------------------------------------------------
+% Reproduced-result values used throughout the report.
+%
+% Every value starts as a red [TBD] placeholder. After running the experiments,
+% either edit this file by hand or regenerate it with:
+%     python code/collect_results.py --runs-dir runs --out report/results/values.tex
+% (the script overwrites this file with measured numbers).
+% ---------------------------------------------------------------------------
+
+% ---- E0: official Shaer generations re-scored with our evaluator (macOS) ----
+\newcommand{\EzeroMeterAcc}{\TBD{E0 acc}}
+\newcommand{\EzeroMeterConf}{\TBD{E0 conf}}
+\newcommand{\EzeroCountAcc}{\TBD{E0 count}}
+\newcommand{\EzeroCountAdh}{\TBD{E0 adh}}
+
+% ---- E1: official adapter, MLX 4-bit inference on the Mac mini ----
+\newcommand{\EoneMeterAcc}{\TBD{E1 acc}}
+\newcommand{\EoneMeterConf}{\TBD{E1 conf}}
+\newcommand{\EoneCountAcc}{\TBD{E1 count}}
+\newcommand{\EoneCountAdh}{\TBD{E1 adh}}
+
+% ---- E2: untuned Yehia-7B, MLX 4-bit inference ----
+\newcommand{\EtwoMeterAcc}{\TBD{E2 acc}}
+\newcommand{\EtwoMeterConf}{\TBD{E2 conf}}
+\newcommand{\EtwoCountAcc}{\TBD{E2 count}}
+\newcommand{\EtwoCountAdh}{\TBD{E2 adh}}
+
+% ---- E3: Shaer re-trained on the Mac mini (MLX QLoRA), MLX 4-bit inference ----
+\newcommand{\EthreeMeterAcc}{\TBD{E3 acc}}
+\newcommand{\EthreeMeterConf}{\TBD{E3 conf}}
+\newcommand{\EthreeCountAcc}{\TBD{E3 count}}
+\newcommand{\EthreeCountAdh}{\TBD{E3 adh}}
+
+% ---- E3 per length bucket: exact count accuracy (%) ----
+\newcommand{\EthreeCountBucketA}{\TBD{1--3}}
+\newcommand{\EthreeCountBucketB}{\TBD{4--6}}
+\newcommand{\EthreeCountBucketC}{\TBD{7--10}}
+\newcommand{\EthreeCountBucketD}{\TBD{11--20}}
+% ---- E3 per length bucket: base-meter accuracy (%) ----
+\newcommand{\EthreeMeterBucketA}{\TBD{1--3}}
+\newcommand{\EthreeMeterBucketB}{\TBD{4--6}}
+\newcommand{\EthreeMeterBucketC}{\TBD{7--10}}
+\newcommand{\EthreeMeterBucketD}{\TBD{11--20}}
+
+% ---- E3 training run ----
+\newcommand{\EthreeSteps}{\TBD{steps}}
+\newcommand{\EthreeTrainLoss}{\TBD{final train loss}}
+\newcommand{\EthreeBestEvalLoss}{\TBD{best eval loss}}
+\newcommand{\EthreeBestStep}{\TBD{best step}}
+\newcommand{\EthreeTestLoss}{\TBD{test loss}}
+\newcommand{\EthreeWallClock}{\TBD{wall-clock}}
+\newcommand{\EthreeTokPerSec}{\TBD{tokens/s}}
+\newcommand{\EthreePeakMem}{\TBD{peak GB}}
+\newcommand{\EthreeGenTime}{\TBD{generation time}}
+
+% ---- E4: LLM judge (Qwen3-235B-A22B, strict v2 rubric), 1--5 ----
+\newcommand{\EfourDA}{\TBD{DA}}
+\newcommand{\EfourMeaning}{\TBD{M}}
+\newcommand{\EfourFluency}{\TBD{F}}
+\newcommand{\EfourCoherence}{\TBD{C}}
+\newcommand{\EfourPoeticness}{\TBD{P}}
+
+% ---- Memorisation (E3 outputs vs training set) ----
+\newcommand{\EthreeExactCopies}{\TBD{copies}}
+\newcommand{\EthreeMaxSpan}{\TBD{max span}}
+\newcommand{\EthreeJaccardMax}{\TBD{max Jaccard}}
