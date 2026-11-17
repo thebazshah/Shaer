@@ -1871,6 +1871,25 @@ class MeterAuxEvalCallback(TrainerCallback):
         )
 
 
+class RescueSaveCallback(TrainerCallback):
+    """Extra resume checkpoints between the regular ones, for runs that can be interrupted (for example on Colab).
+
+    Off by default (SFT_RESCUE_SAVE_STEPS unset or 0), so the paper's schedule is untouched. When on, a checkpoint is also written
+    every `every` optimiser steps. Evaluation, the probe generation and the best-checkpoint selection still happen only at the
+    regular `save_steps` (a save without an evaluation leaves the Trainer's best-checkpoint bookkeeping alone, and rotation never
+    deletes the best checkpoint). Hugging Face does not allow `save_steps` below `eval_steps` together with
+    load_best_model_at_end, which is why this is a separate mechanism.
+    """
+
+    def __init__(self, every: int):
+        self.every = int(every)
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.every > 0 and state.global_step > 0 and state.global_step % self.every == 0:
+            control.should_save = True
+        return control
+
+
 class ProbeOnSaveCallback(TrainerCallback):
     def __init__(
         self,
@@ -2164,6 +2183,12 @@ def run_training() -> None:
         logger=logger,
     )
 
+    callbacks = [metrics_cb, hub_cb, meter_aux_eval_cb, probe_cb]
+    rescue_every = int(os.getenv("SFT_RESCUE_SAVE_STEPS", "0") or 0)
+    if rescue_every > 0:
+        callbacks.append(RescueSaveCallback(rescue_every))
+        logger.info("Extra resume checkpoints every %d steps (regular: every %d; evaluation and best-checkpoint selection stay on the "
+                    "regular schedule)", rescue_every, cfg.save_steps)
     trainer = WeightedSFTTrainer(
         model=model,
         args=training_args,
@@ -2171,7 +2196,7 @@ def run_training() -> None:
         eval_dataset=live_eval_ds,
         tokenizer=tokenizer,
         data_collator=collator,
-        callbacks=[metrics_cb, hub_cb, meter_aux_eval_cb, probe_cb],
+        callbacks=callbacks,
         train_sample_weights=sample_weights,
         cfg=cfg,
     )

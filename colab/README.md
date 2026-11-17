@@ -31,6 +31,10 @@ It is not a full end-to-end reproduction notebook for training.
   (GPU below 10 % and almost no CPU) for `STALL_MINUTES`, telling you to re-run the cell, which resumes. Training runs in the
   background; `sc.watch_training(cfg)` is a live view (bar, loss, ETA, GPU) and `auto_restart=True` restarts a hung run from its
   last checkpoint.
+- `sc.start_training(cfg, save_steps=50)` adds a resume checkpoint every 50 optimiser steps (default 200, the paper's schedule) so an
+  interruption loses fewer steps. Evaluation, the probe and best-checkpoint selection stay on the 200-step schedule (Hugging Face does not
+  allow a save interval below the evaluation interval with `load_best_model_at_end`, so this is a separate resume-only mechanism,
+  `SFT_RESCUE_SAVE_STEPS` in `sft/train_sft.py`, off by default).
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.
