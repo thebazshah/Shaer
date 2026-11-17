@@ -1951,10 +1951,15 @@ def latest_complete_checkpoint_step(output_dir: Path) -> int:
     steps = []
     for child in output_dir.iterdir():
         m = pattern.match(child.name)
-        if child.is_dir() and m and all((child / name).exists() for name in required) and (
+        if not (child.is_dir() and m and all((child / name).exists() for name in required) and (
             (child / "adapter_model.safetensors").exists() or (child / "adapter_model.bin").exists()
-        ):
-            steps.append(int(m.group(1)))
+        )):
+            continue
+        try:  # HF writes trainer_state.json last; make sure a kill did not truncate it
+            json.loads((child / "trainer_state.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        steps.append(int(m.group(1)))
     return max(steps) if steps else 0
 
 
