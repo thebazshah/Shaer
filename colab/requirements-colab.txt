@@ -20,3 +20,4 @@ python-dotenv==1.0.1
 pyyaml
 httpx
 matplotlib==3.9.2
+curl_cffi==0.17.0   # the LLM judge client (evaluation/judge_llm.py)

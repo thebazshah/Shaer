@@ -39,6 +39,12 @@ PAPER_NUMBERS = {  # base-meter accuracy %, meter conformity, exact count %, cou
     "Yehia-7B": (26.49, 0.1494, 44.47, 0.7680),
 }
 METER_MODEL_ID = "Shaer-AI/4BiLSTM-meter-classification-pytorch"
+PAPER_JUDGE_MODEL = "qwen/qwen3-235b-a22b-2507"           # the judge of the paper (strict v2 prompts, temperature 0)
+PAPER_JUDGE_SCORES = {  # description adherence, meaning, fluency, coherence, poeticness (evaluation/results2.md)
+    "Shaer": (4.75, 3.72, 4.31, 3.69, 3.82),
+    "Yehia-7B": (4.42, 3.75, 4.21, 3.82, 3.73),
+}
+JUDGE_METRICS = ("description_adherence", "meaning", "fluency", "coherence", "poeticness")
 
 
 # ------------------------------------------------------------------------------------------------ configuration
@@ -57,6 +63,7 @@ class Config:
     branch: str
     hf_token: str = ""
     stall_minutes: float = 15          # a step silent AND idle for this long is treated as stuck
+    openrouter_key: str = ""           # only for the LLM judge (E4); never printed
     repo_dir: str = "/content/Shaer"
     venv_dir: str = "/content/venv"
 
@@ -90,13 +97,16 @@ class Config:
         e.update(HF_TOKEN=self.hf_token, BASE_MODEL=self.base_model, SFT_BASE_MODEL_ID=self.base_model,  # train_sft.py reads the latter
                  METER_MODEL_ID=METER_MODEL_ID, SFT_PUSH_TO_HUB="0",   # never create or push to a Hugging Face repo
                  PAPER_FLOW="1" if self.paper_flow else "0", PYTHONUNBUFFERED="1")
+        if self.openrouter_key:
+            e["OPENROUTER_API_KEY"] = self.openrouter_key
         e.update(extra)
         return e
 
 
 def make_config(*, base_model: str, drive_base: str = "/content/drive/MyDrive", run_name: str = "paper_repro_a100",
                 num_samples: int = 1, gen_batch_size="auto", force_e1: bool = False, stall_minutes: float = 15,
-                repo_url: str = "https://github.com/thebazshah/Shaer.git", branch: str = "dev", hf_token: str = "") -> Config:
+                repo_url: str = "https://github.com/thebazshah/Shaer.git", branch: str = "dev", hf_token: str = "",
+                openrouter_key: str = "") -> Config:
     """Pick the flow from the base model. Exactly two models are supported."""
     if base_model == YEHIA:
         # PAPER FLOW: the setup of the Shaer paper. E0, E1 (released adapter), E2 (untuned Yehia) and E3 (re-training) all
@@ -114,7 +124,7 @@ def make_config(*, base_model: str, drive_base: str = "/content/drive/MyDrive", 
     else:
         raise ValueError(f"unsupported BASE_MODEL {base_model!r}: use {YEHIA!r} or {ALLAM[0]!r}")
     cfg = Config(base_model=base_model, paper_flow=paper_flow, tag=tag, run_e1=run_e1, force_e1=bool(force_e1), run_name=run_name,
-                 num_samples=int(num_samples), gen_batch_size=str(gen_batch_size), stall_minutes=float(stall_minutes),
+                 num_samples=int(num_samples), gen_batch_size=str(gen_batch_size), stall_minutes=float(stall_minutes), openrouter_key=openrouter_key,
                  drive_root=str(pathlib.Path(drive_base, f"shaer-repro-{tag}")), repo_url=repo_url, branch=branch, hf_token=hf_token)
     for sub in (cfg.runs, cfg.logs, cfg.sft_outputs):
         sub.mkdir(parents=True, exist_ok=True)
@@ -420,6 +430,48 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
     _finish(t0, f"{step.upper()} (results in {cfg.runs / step})")
 
 
+def run_judge(cfg: Config, step: str = "e3", *, limit_rows: int = 0, workers: int = 6, all_samples: bool = False,
+              judge_model: str = PAPER_JUDGE_MODEL, max_cost_usd: float = 0.0, dry_run: bool = False) -> None:
+    """E4: judge the poems of a generation step ("e1", "e2" or "e3") with the repository's LLM judge (five metrics, 1-5).
+
+    Uses the paper's judge (`qwen/qwen3-235b-a22b-2507`, strict v2 prompts, temperature 0) through OpenRouter, which is a PAID API:
+    one poem costs five calls. Needs the Colab secret OPENROUTER_API_KEY. Recommended order: `dry_run=True` (plan and the exact prompt,
+    no call), then `limit_rows=10` (a trial), then the full run. Safe to stop and run again: finished poems are kept, failed ones are
+    judged again. Only the poem and its description are sent, never the reference poem. `max_cost_usd` stops the run at a budget
+    (the API-reported cost). By default only sample 0 of each prompt is judged (`all_samples=True` for all).
+    """
+    generations = cfg.runs / step / "generations.jsonl"
+    if not generations.exists():
+        raise RuntimeError(f"no poems to judge: {generations} does not exist. Run the {step.upper()} generation step first.")
+    if not dry_run and not cfg.openrouter_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set. Add it as a Colab secret named OPENROUTER_API_KEY (key icon in the left sidebar, "
+                           "'Notebook access' on), then run the configuration cell again.")
+    out_dir = cfg.runs / "e4" / step
+    cmd = [cfg.py, "-u", "evaluation/run_llm_judge.py", "--generations", generations, "--out-dir", out_dir, "--key", step,
+           "--judge-model", judge_model, "--workers", workers]
+    if limit_rows:
+        cmd += ["--limit-rows", limit_rows]
+    if all_samples:
+        cmd += ["--all-samples"]
+    if max_cost_usd:
+        cmd += ["--max-cost-usd", max_cost_usd]
+    if dry_run:
+        cmd += ["--dry-run"]
+    if judge_model != PAPER_JUDGE_MODEL:
+        print(f"note: {judge_model} is not the paper's judge ({PAPER_JUDGE_MODEL}); its scores are not comparable with the paper's.")
+    t0 = _start(f"E4: {'previewing' if dry_run else 'judging'} the {step.upper()} poems with {judge_model}",
+                None if dry_run else "a bar with rows, calls, rate, ETA and the API-reported cost")
+    code = run(cmd, label="E4 judge", cwd=cfg.repo_dir, env=cfg.env(), check=False, drop=(), stall_after=cfg.stall_seconds)
+    if code == 0:
+        _finish(t0, f"E4 {step.upper()} judge" + ("" if dry_run else f" (results in {out_dir})"))
+    elif code == 4:
+        print("■ stopped at the cost limit. Run this cell again with a higher max_cost_usd to continue; finished poems are kept.")
+    elif code == 3:
+        raise StepStalled("the judge's API calls looked stuck and were stopped. Run this cell again: it resumes where it left off.")
+    else:
+        raise RuntimeError("the judge step did not finish (see the message above). Fix that and run the cell again: it resumes.")
+
+
 def generation_stats(cfg: Config, step: str = "e2", drive_root: str | None = None) -> None:
     """Why is (or was) a generation step slow? Reads the output of a finished OR still running step from Drive and prints
     the GPU, the batch size, how long the poems are, how many hit the token limit, and the measured speed.
@@ -721,6 +773,18 @@ def results_table(cfg: Config) -> str:
     table = "\n".join(lines)
     if not cfg.paper_flow:
         table += f"\n\nSubstitute base model ({base}): E2/E3 are not comparable one-to-one with the paper's Yehia-based numbers."
+    judge_lines = []
+    for key, name in steps:
+        f = cfg.runs / "e4" / key / "judge_scores.json"
+        if not f.exists():
+            continue
+        s = json.loads(f.read_text())
+        mark = "" if s.get("judge_model") == PAPER_JUDGE_MODEL else f" [judge {s.get('judge_model')}: not comparable]"
+        judge_lines.append(f"| {name}{mark} (n={s['rows']:,}) | " + " | ".join(f"{s['mean'][m]:.2f}" for m in JUDGE_METRICS) + " |")
+    if judge_lines:
+        header = ["| System (LLM judge, 1-5) | Description adherence | Meaning | Fluency | Coherence | Poeticness |", "|---|---:|---:|---:|---:|---:|"]
+        paper = [f"| {n} (paper{suffix}) | " + " | ".join(f"{v:.2f}" for v in vals) + " |" for n, vals in PAPER_JUDGE_SCORES.items()]
+        table += "\n\n" + "\n".join(header + paper + judge_lines)
     (cfg.runs / "results.md").write_text(table + "\n")
     print(table)
     print("\nBase-meter accuracy here = first-bayt prediction, the definition that reproduces the paper's own tables;")

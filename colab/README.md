@@ -31,6 +31,10 @@ It is not a full end-to-end reproduction notebook for training.
   (GPU below 10 % and almost no CPU) for `STALL_MINUTES`, telling you to re-run the cell, which resumes. Training runs in the
   background; `sc.watch_training(cfg)` is a live view (bar, loss, ETA, GPU) and `auto_restart=True` restarts a hung run from its
   last checkpoint.
+- **E4, the LLM judge** (`sc.run_judge(cfg, "e3")`, optional and paid): scores the poems on the paper's five judge metrics with the repository's own
+  judge (`qwen/qwen3-235b-a22b-2507`, strict v2 prompts, temperature 0, through OpenRouter; needs the Colab secret `OPENROUTER_API_KEY`).
+  `evaluation/run_llm_judge.py` runs the repository's parallel workers and merge, and adds a preflight call, safe re-runs (failed poems
+  are judged again, finished ones kept), stall detection, a cost limit, and a progress bar with the API-reported cost. One poem is five calls.
 - `sc.start_training(cfg, save_steps=50)` adds a resume checkpoint every 50 optimiser steps (default 200, the paper's schedule) so an
   interruption loses fewer steps. Evaluation, the probe and best-checkpoint selection stay on the 200-step schedule (Hugging Face does not
   allow a save interval below the evaluation interval with `load_best_model_at_end`, so this is a separate resume-only mechanism,
