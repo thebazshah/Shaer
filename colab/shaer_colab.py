@@ -383,6 +383,54 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
     _finish(t0, f"{step.upper()} (results in {cfg.runs / step})")
 
 
+def generation_stats(cfg: Config, step: str = "e2", drive_root: str | None = None) -> None:
+    """Why is (or was) a generation step slow? Reads the output of a finished OR still running step from Drive and prints
+    the GPU, the batch size, how long the poems are, how many hit the token limit, and the measured speed.
+
+    Pass `drive_root` (for example the other model's folder, ".../shaer-repro-allam") to look at another run, so two runs can be compared.
+    """
+    root = pathlib.Path(drive_root or cfg.drive_root) / "runs" / step
+    gen, meta_file = root / "generations.jsonl", root / "generations.meta.json"
+    if not gen.exists():
+        print(f"no generations yet in {root}")
+        return
+    rows = []
+    for line in gen.read_text(encoding="utf-8").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass                                             # a half-written last line
+    meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+    args = meta.get("args", {})
+    max_new = int(args.get("max_new_tokens", 768))
+    tokens = [int(r.get("gen_tokens", 0)) for r in rows]
+    ended = sum(1 for r in rows if r.get("finished_with_eos"))
+    capped = sum(1 for r in rows if not r.get("finished_with_eos") and int(r.get("gen_tokens", 0)) >= max_new)
+    n = max(len(rows), 1)
+    print(f"{step.upper()} in {root}")
+    print(f"  model: {args.get('base_model')} | adapter: {meta.get('adapter')} | dtype {args.get('dtype')}, quantize {args.get('quantize')}")
+    print(f"  GPU: {meta.get('gpu')} | batch size used: {meta.get('batch_size_used')} "
+          f"({'auto' if str(args.get('batch_size', 'auto')).lower() == 'auto' else 'fixed'}) | samples per prompt: {args.get('num_samples')}")
+    print(f"  poems so far: {len(rows):,}")
+    if rows:
+        print(f"  tokens per poem: mean {sum(tokens) / n:.0f}, longest {max(tokens)} | ended with EOS: {100 * ended / n:.0f}% | "
+              f"cut off at the {max_new}-token limit: {100 * capped / n:.0f}%")
+    seconds = sum(r.get("seconds", 0) for r in meta.get("runs", []))
+    if not seconds and meta_file.exists():                   # a run in progress: meta was written when it started
+        seconds = max(gen.stat().st_mtime - meta_file.stat().st_mtime, 0)
+    if seconds and rows:
+        print(f"  measured: {len(rows) / (seconds / 60):.1f} poems/min, {sum(tokens) / seconds:.0f} generated tokens/s over {_fmt(seconds)}")
+    bs, gpu = meta.get("batch_size_used"), str(meta.get("gpu"))
+    if isinstance(bs, int) and bs < 16:
+        print(f"  -> small batch ({bs}): decoding is memory-bound, so poems/min is proportional to the batch size. Stop other GPU work "
+              "(training, other notebooks) or restart the runtime so 'auto' can pick a larger batch, then run this step again; "
+              "poems already written are kept.")
+    if rows and capped / n > 0.5:
+        print(f"  -> most poems run to the {max_new}-token limit (the model rarely emits end-of-sequence): every batch then takes the full {max_new} steps.")
+    if any(x in gpu for x in ("T4", "L4")):
+        print(f"  -> {gpu} has a fraction of an A100's memory bandwidth; expect several times slower generation.")
+
+
 # ------------------------------------------------------------------------------------------------ E3: training
 def train_smoke_test(cfg: Config) -> None:
     """Train 6 steps with the real 4-bit configuration and report the measured peak GPU memory."""

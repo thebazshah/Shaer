@@ -247,7 +247,7 @@ def main() -> None:
                     gen = generate_with_oom_retry(
                         model, enc, dict(do_sample=True, temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
                                          repetition_penalty=args.repetition_penalty, max_new_tokens=args.max_new_tokens,
-                                         pad_token_id=tokenizer.pad_token_id, eos_token_id=eos), tokenizer.pad_token_id)
+                                         pad_token_id=tokenizer.pad_token_id, eos_token_id=eos, use_cache=True), tokenizer.pad_token_id)
                 dt = time.time() - t0
                 for j, i in enumerate(todo):
                     new = gen[j][width:]
