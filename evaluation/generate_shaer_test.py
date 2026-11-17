@@ -80,8 +80,12 @@ def auto_batch_size(model, max_prompt_tokens: int, max_new_tokens: int, cap: int
     c = model.config
     head_dim = c.hidden_size // c.num_attention_heads
     kv_bytes_per_token = 2 * c.num_hidden_layers * getattr(c, "num_key_value_heads", c.num_attention_heads) * head_dim * 2  # K and V, 2 bytes
-    per_sequence = kv_bytes_per_token * (max_prompt_tokens + max_new_tokens)
-    budget = 0.85 * free - 1.5e9          # keep room for activations, logits and fragmentation
+    # peak per sequence is the larger of (a) the KV cache at the end of generation and (b) the prompt pass, where
+    # transformers 4.43 computes logits for EVERY prompt position and upcasts them to fp32 (2 + 4 bytes per entry)
+    decode_cost = kv_bytes_per_token * (max_prompt_tokens + max_new_tokens)
+    prefill_cost = kv_bytes_per_token * max_prompt_tokens + max_prompt_tokens * c.vocab_size * 6
+    per_sequence = max(decode_cost, prefill_cost)
+    budget = 0.85 * free - 1.5e9          # keep room for activations and fragmentation
     return int(max(1, min(cap, budget // per_sequence)))
 
 
@@ -216,6 +220,10 @@ def main() -> None:
     (out.with_suffix(".meta.json")).write_text(json.dumps(meta, indent=2, ensure_ascii=False))
 
     eos = tokenizer.eos_token_id
+    total_rows = len(rows) * args.num_samples
+    already = len(done)
+    print(f"generating {total_rows - already} of {total_rows} poems ({already} already done) in {len(batches)} batches per sample; "
+          f"each batch takes up to a few minutes (up to {args.max_new_tokens} new tokens)", flush=True)
     t_start, n_new, tok_total = time.time(), 0, 0
     with out.open("a", encoding="utf-8") as f:
         for sample_idx in range(args.num_samples):
@@ -256,8 +264,13 @@ def main() -> None:
                 f.flush()
                 n_new += len(todo)
                 el = time.time() - t_start
-                print(f"sample {sample_idx} batch {b_no + 1}/{len(batches)} | {n_new} new rows | batch {dt:.0f}s | "
-                      f"{tok_total / el:.0f} tok/s | {el / 60:.1f} min elapsed", flush=True)
+                finished_rows = already + n_new
+                remaining = total_rows - finished_rows
+                eta_min = (remaining / (n_new / el)) / 60 if n_new else float("nan")
+                peak = f" | peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB" if use_cuda else ""
+                print(f"[{100 * finished_rows / total_rows:5.1f}%] {finished_rows}/{total_rows} poems | sample {sample_idx} "
+                      f"batch {b_no + 1}/{len(batches)} | last batch {dt:.0f}s | {tok_total / el:.0f} tok/s | "
+                      f"{el / 60:.1f} min elapsed | ETA ~{eta_min:.0f} min{peak}", flush=True)
     summary = {"new_rows": n_new, "seconds": time.time() - t_start, "tokens": tok_total,
                "finished_at": time.strftime("%Y-%m-%d %H:%M:%S")}
     meta_path = out.with_suffix(".meta.json")

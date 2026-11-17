@@ -34,4 +34,5 @@ It is not a full end-to-end reproduction notebook for training.
     (`evaluation/generate_shaer_test.py` refuses that combination unless `--allow-adapter-mismatch` is given), E2/E3 measure
     ALLaM, and the results table labels the paper's rows as Yehia-based. Outputs go to `MyDrive/shaer-repro-allam`.
   Any other value raises an error.
-- GPU: an A100 (40/80 GB) is what the notebook is written for. The notebook checks the GPU and says which steps it supports.
+- GPU: an A100 (40 or 80 GB) is what the notebook is written for. 40 GB is enough: generation (bf16 model + adaptive KV-cache batch)
+  and 4-bit QLoRA training (about 12-14 GB estimated; the smoke test in the notebook prints the measured peak). The notebook checks the GPU and says which steps it supports.
