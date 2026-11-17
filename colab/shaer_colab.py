@@ -167,6 +167,42 @@ def _cpu_seconds(pid: int) -> float | None:
         return None
 
 
+def _gpu_jobs() -> list:
+    """Other processes of this project that are using the GPU: training runs and generation runs, as (pid, description).
+
+    A process counts only if one of its ARGUMENTS is the script (so a shell or editor that merely mentions the name does not).
+    """
+    jobs = []
+    for proc in pathlib.Path("/proc").iterdir():
+        if not proc.name.isdigit() or int(proc.name) == os.getpid():
+            continue
+        try:
+            args = (proc / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+        except OSError:
+            continue
+        scripts = {os.path.basename(a) for a in args[1:]}
+        if "train_sft.py" in scripts and "--mode" in args:
+            name = args[args.index("--run_name") + 1] if "--run_name" in args and args.index("--run_name") + 1 < len(args) else None
+            jobs.append((int(proc.name), "training" + (f" (run '{name}')" if name else "")))
+        elif "generate_shaer_test.py" in scripts:
+            jobs.append((int(proc.name), "generation"))
+    return jobs
+
+
+def _warn_if_gpu_shared(doing: str) -> None:
+    """Two jobs on one GPU make both slower, and 'auto' batch size shrinks because it only sees the memory left over."""
+    jobs = _gpu_jobs()
+    if not jobs:
+        return
+    stats = _gpu_stats()
+    print(f"⚠ another job is already using this GPU: " + ", ".join(f"{what} [pid {pid}]" for pid, what in jobs)
+          + (f" ({stats[1] / 1024:.1f} GB in use, {stats[0]}% busy)" if stats else "") + ".")
+    print(f"  Running {doing} at the same time makes BOTH slower (the GPU is time-shared) and the generation batch smaller, because the "
+          "automatic batch size only sees the memory that is left. Let one finish first, or stop the other one; a stopped "
+          "training run resumes from its last checkpoint with sc.start_training(cfg) (use the config of that run: same BASE_MODEL "
+          "and RUN_NAME).", flush=True)
+
+
 def _count_lines(path: pathlib.Path) -> int:
     try:
         with open(path, "rb") as f:
@@ -374,6 +410,7 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
         adapter_args, what = ["--adapter-path", best], f"the adapter trained here ({pathlib.Path(best).name})"
     else:
         raise ValueError(f"unknown step {step!r} (use 'e1', 'e2' or 'e3')")
+    _warn_if_gpu_shared(f"{step.upper()} generation")
     t0 = _start(f"{step.upper()}: generating the test poems with {what}",
                 "model download + load first (about 5-10 min on a fresh runtime), then the progress bar with an ETA")
     run([cfg.py, "-u", "evaluation/generate_shaer_test.py", *adapter_args, "--base-model", cfg.base_model,
@@ -421,6 +458,7 @@ def generation_stats(cfg: Config, step: str = "e2", drive_root: str | None = Non
     if seconds and rows:
         print(f"  measured: {len(rows) / (seconds / 60):.1f} poems/min, {sum(tokens) / seconds:.0f} generated tokens/s over {_fmt(seconds)}")
     bs, gpu = meta.get("batch_size_used"), str(meta.get("gpu"))
+    _warn_if_gpu_shared("this step")
     if isinstance(bs, int) and bs < 16:
         print(f"  -> small batch ({bs}): decoding is memory-bound, so poems/min is proportional to the batch size. Stop other GPU work "
               "(training, other notebooks) or restart the runtime so 'auto' can pick a larger batch, then run this step again; "
@@ -434,6 +472,7 @@ def generation_stats(cfg: Config, step: str = "e2", drive_root: str | None = Non
 # ------------------------------------------------------------------------------------------------ E3: training
 def train_smoke_test(cfg: Config) -> None:
     """Train 6 steps with the real 4-bit configuration and report the measured peak GPU memory."""
+    _warn_if_gpu_shared("the smoke test")
     t0 = _start("smoke test: 6 training steps with the real 4-bit setup", "about 10-15 min, mostly the 15 GB model download and loading")
     samples, stop = [], threading.Event()
 
@@ -481,6 +520,7 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True) -> None:
         print(f"run '{cfg.run_name}' already finished (run_summary.json exists): go to the generation step. "
               "Use a new RUN_NAME to train again.")
         return
+    _warn_if_gpu_shared("training")
     env = cfg.env(SFT_RESUME_MODE="auto")        # resumes from the newest complete checkpoint of this RUN_NAME on Drive
     if not gradient_checkpointing:
         env["SFT_GRADIENT_CHECKPOINTING"] = "0"  # faster, uses more memory (see the notebook text before using it on 40 GB)
