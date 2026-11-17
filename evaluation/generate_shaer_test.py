@@ -58,7 +58,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--split", default="test")
     ap.add_argument("--limit-rows", type=int, default=0)
     ap.add_argument("--num-samples", type=int, default=1, help="samples per prompt (rows get sample_idx)")
-    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--batch-size", default="auto",
+                    help="prompts per batch, or 'auto' (default): sized from free GPU memory, at most 32; an out-of-memory error halves the batch")
     ap.add_argument("--max-new-tokens", type=int, default=768)
     ap.add_argument("--temperature", type=float, default=0.55)
     ap.add_argument("--top-p", type=float, default=0.90)
@@ -68,6 +69,39 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--use-fast-tokenizer", action="store_true", help="training used use_fast=False (ignored by transformers>=5)")
     ap.add_argument("--seed", type=int, default=42)
     return ap.parse_args()
+
+
+def auto_batch_size(model, max_prompt_tokens: int, max_new_tokens: int, cap: int = 32) -> int:
+    """Largest batch whose KV cache fits in the GPU memory left after the model is loaded (conservative)."""
+    import torch
+    if not torch.cuda.is_available():
+        return 4
+    free, _ = torch.cuda.mem_get_info()
+    c = model.config
+    head_dim = c.hidden_size // c.num_attention_heads
+    kv_bytes_per_token = 2 * c.num_hidden_layers * getattr(c, "num_key_value_heads", c.num_attention_heads) * head_dim * 2  # K and V, 2 bytes
+    per_sequence = kv_bytes_per_token * (max_prompt_tokens + max_new_tokens)
+    budget = 0.85 * free - 1.5e9          # keep room for activations, logits and fragmentation
+    return int(max(1, min(cap, budget // per_sequence)))
+
+
+def generate_with_oom_retry(model, enc: dict, gen_kwargs: dict, pad_id: int):
+    """model.generate, but if the GPU runs out of memory split the batch in two and generate the halves separately."""
+    import torch
+    try:
+        return model.generate(**enc, **gen_kwargs)
+    except torch.cuda.OutOfMemoryError:
+        n = enc["input_ids"].shape[0]
+        if n == 1:
+            raise
+        torch.cuda.empty_cache()
+        h = n // 2
+        print(f"out of memory with {n} prompts: retrying as {h} + {n - h}", flush=True)
+        a = generate_with_oom_retry(model, {k: v[:h] for k, v in enc.items()}, gen_kwargs, pad_id)
+        b = generate_with_oom_retry(model, {k: v[h:] for k, v in enc.items()}, gen_kwargs, pad_id)
+        width = max(a.shape[1], b.shape[1])
+        pad = lambda x: torch.nn.functional.pad(x, (0, width - x.shape[1]), value=pad_id)
+        return torch.cat([pad(a), pad(b)], dim=0)
 
 
 def check_adapter_matches_base(args: argparse.Namespace) -> None:
@@ -124,7 +158,14 @@ def main() -> None:
     if args.limit_rows:
         rows = rows[: args.limit_rows]
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=args.use_fast_tokenizer, token=token)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=args.use_fast_tokenizer, token=token)
+    except ImportError as exc:
+        if "protobuf" in str(exc).lower():
+            raise SystemExit("the slow Llama tokenizer (transformers 4.43) needs protobuf, which is missing in this environment. "
+                             "Install it with:  uv pip install --python /content/venv/bin/python protobuf==4.25.3   (the notebook's "
+                             "environment cell now does this automatically) and run this step again.") from exc
+        raise
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
@@ -158,13 +199,16 @@ def main() -> None:
     # longest prompts first -> the first batch reveals the memory peak; batches are fixed so a resume reuses the same seeds
     lengths = [len(tokenizer(r["row"]["sft_prompt"], add_special_tokens=args.add_special_tokens)["input_ids"]) for r in rows]
     order = sorted(range(len(rows)), key=lambda i: -lengths[i])
-    batches = [order[k:k + args.batch_size] for k in range(0, len(order), args.batch_size)]
+    batch_size = (auto_batch_size(model, max(lengths), args.max_new_tokens) if str(args.batch_size).lower() == "auto"
+                  else int(args.batch_size))
+    print(f"batch size: {batch_size} ({'auto' if str(args.batch_size).lower() == 'auto' else 'fixed'}), longest prompt {max(lengths)} tokens", flush=True)
+    batches = [order[k:k + batch_size] for k in range(0, len(order), batch_size)]
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     done = read_done(out)
     meta = {
-        "args": vars(args), "adapter": adapter_desc,
+        "args": vars(args), "adapter": adapter_desc, "batch_size_used": batch_size,
         "paper_flow": args.base_model == YEHIA_BASE_MODEL_ID,   # False => substitute base model, not the paper's setup "n_prompts": len(rows), "max_prompt_tokens": max(lengths),
         "torch": torch.__version__, "transformers": transformers.__version__, "python": platform.python_version(),
         "gpu": torch.cuda.get_device_name(0) if use_cuda else "cpu",
@@ -186,10 +230,10 @@ def main() -> None:
                 width = int(enc["input_ids"].shape[1])
                 t0 = time.time()
                 with torch.inference_mode():
-                    gen = model.generate(
-                        **enc, do_sample=True, temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
-                        repetition_penalty=args.repetition_penalty, max_new_tokens=args.max_new_tokens,
-                        pad_token_id=tokenizer.pad_token_id, eos_token_id=eos)
+                    gen = generate_with_oom_retry(
+                        model, enc, dict(do_sample=True, temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
+                                         repetition_penalty=args.repetition_penalty, max_new_tokens=args.max_new_tokens,
+                                         pad_token_id=tokenizer.pad_token_id, eos_token_id=eos), tokenizer.pad_token_id)
                 dt = time.time() - t0
                 for j, i in enumerate(todo):
                     new = gen[j][width:]
