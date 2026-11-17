@@ -1984,6 +1984,10 @@ def run_training() -> None:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     logger = setup_logging(cfg.output_dir, cfg.log_level)
     logger.info("Starting SFT | mode=%s run_name=%s", cfg.mode, cfg.run_name)
+    if cfg.base_model_id == "Navid-AI/Yehia-7B-preview":
+        logger.info("Base model is the paper's: %s", cfg.base_model_id)
+    else:
+        logger.warning("Base model is %s, NOT the paper's Navid-AI/Yehia-7B-preview: results are a documented deviation.", cfg.base_model_id)
     logger.info("Output dir: %s", cfg.output_dir)
 
     config_snapshot = asdict(cfg)

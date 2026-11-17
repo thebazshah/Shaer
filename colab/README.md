@@ -26,4 +26,12 @@ It is not a full end-to-end reproduction notebook for training.
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.
+- Base model, chosen in the first cell (`BASE_MODEL`), selects one of two flows:
+  - `Navid-AI/Yehia-7B-preview` (gated): the **paper flow**. E0, E1 (released adapter), E2 and E3 run as in the paper and
+    are compared with the paper's numbers. Outputs go to `MyDrive/shaer-repro-yehia`.
+  - `ALLaM-AI/ALLaM-7B-Instruct-preview` (not gated; the model Yehia was fine-tuned from, byte-identical tokenizer): the
+    **substitute flow**. E1 is skipped because the released adapter was trained on Yehia's weights
+    (`evaluation/generate_shaer_test.py` refuses that combination unless `--allow-adapter-mismatch` is given), E2/E3 measure
+    ALLaM, and the results table labels the paper's rows as Yehia-based. Outputs go to `MyDrive/shaer-repro-allam`.
+  Any other value raises an error.
 - GPU: an A100 (40/80 GB) is what the notebook is written for. The notebook checks the GPU and says which steps it supports.

@@ -33,7 +33,8 @@ import time
 from pathlib import Path
 
 DATASET_ID = "Shaer-AI/ashaar-with-enhanced-descriptions-baseform-final-sft-lte20-min500-splits"
-BASE_MODEL_ID = "Navid-AI/Yehia-7B-preview"
+BASE_MODEL_ID = "Navid-AI/Yehia-7B-preview"      # the paper's base model (gated)
+YEHIA_BASE_MODEL_ID = BASE_MODEL_ID
 ADAPTER_REPO_ID = "Shaer-AI/Shaer-adapters"
 ADAPTER_SUBFOLDER = "adapters/fresh_sft/train/best"
 
@@ -47,6 +48,8 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--adapter-path", default="", help="local PEFT adapter / checkpoint directory (E3)")
     ap.add_argument("--adapter-repo", default=ADAPTER_REPO_ID)
     ap.add_argument("--adapter-subfolder", default=ADAPTER_SUBFOLDER)
+    ap.add_argument("--allow-adapter-mismatch", action="store_true",
+                    help="exploratory only: apply the released adapter (trained on Yehia-7B-preview) to a different base model")
     ap.add_argument("--merge", action="store_true", help="merge the adapter into the weights (faster, tiny rounding change)")
     ap.add_argument("--quantize", choices=["none", "nf4"], default="none")
     ap.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
@@ -65,6 +68,17 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--use-fast-tokenizer", action="store_true", help="training used use_fast=False (ignored by transformers>=5)")
     ap.add_argument("--seed", type=int, default=42)
     return ap.parse_args()
+
+
+def check_adapter_matches_base(args: argparse.Namespace) -> None:
+    """The released Shaer adapter was trained on Yehia-7B-preview's weights. On any other base model (e.g. its parent
+    ALLaM-7B-Instruct-preview) it is not the paper's E1, so refuse unless explicitly asked for an exploratory run."""
+    uses_released_adapter = not args.no_adapter and not args.adapter_path and args.adapter_repo == ADAPTER_REPO_ID
+    if uses_released_adapter and args.base_model != YEHIA_BASE_MODEL_ID and not args.allow_adapter_mismatch:
+        raise SystemExit(
+            f"refusing to apply the released adapter ({ADAPTER_REPO_ID}) to base model '{args.base_model}': it was trained on "
+            f"'{YEHIA_BASE_MODEL_ID}'. Use --adapter-path with your own adapter (E3), --no-adapter (E2), "
+            "or --allow-adapter-mismatch for an exploratory run that is not the paper's E1.")
 
 
 def read_done(path: Path) -> set[tuple[str, int]]:
@@ -93,6 +107,7 @@ def read_done(path: Path) -> set[tuple[str, int]]:
 
 def main() -> None:
     args = parse_args()
+    check_adapter_matches_base(args)
     import torch
     import transformers
     from datasets import load_dataset
@@ -149,7 +164,8 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     done = read_done(out)
     meta = {
-        "args": vars(args), "adapter": adapter_desc, "n_prompts": len(rows), "max_prompt_tokens": max(lengths),
+        "args": vars(args), "adapter": adapter_desc,
+        "paper_flow": args.base_model == YEHIA_BASE_MODEL_ID,   # False => substitute base model, not the paper's setup "n_prompts": len(rows), "max_prompt_tokens": max(lengths),
         "torch": torch.__version__, "transformers": transformers.__version__, "python": platform.python_version(),
         "gpu": torch.cuda.get_device_name(0) if use_cuda else "cpu",
     }
