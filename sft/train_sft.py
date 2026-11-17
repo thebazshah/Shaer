@@ -361,7 +361,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         resume_path=args.resume_path,
         output_dir=(output_root / run_name).resolve(),
         seed=int(defaults.get("seed", 42)),
-        push_to_hub=str2bool(defaults.get("push_to_hub", True)),
+        push_to_hub=str2bool(env_or("SFT_PUSH_TO_HUB", defaults.get("push_to_hub", True))),
         max_seq_length=int(data.get("max_length", defaults.get("max_seq_length", 2048))),
         learning_rate=float(env_or("SFT_LEARNING_RATE", mode_overrides.get("learning_rate", training.get("learning_rate", optimizer.get("learning_rate", defaults.get("learning_rate", 2e-4)))))),
         weight_decay=float(optimizer.get("weight_decay", defaults.get("weight_decay", 0.01))),
@@ -621,6 +621,21 @@ def resolve_resume_checkpoint(
         decision["local_resume_path"] = local
         events_writer.write({"event_type": "resume_decision", **decision})
         return local, decision
+
+    if not cfg.push_to_hub:
+        # Local-only run: never consult the Hub (its checkpoint scan could pick up someone else's checkpoints).
+        # Resume from the newest checkpoint inside this run's own output directory, if there is one.
+        local_step = latest_complete_checkpoint_step(cfg.output_dir) if cfg.output_dir.is_dir() else 0
+        if local_step > 0:
+            local = str(cfg.output_dir / f"checkpoint-{local_step}")
+            decision["result"] = "resume"
+            decision["reason"] = "auto_local_checkpoint"
+            decision["local_resume_path"] = local
+            events_writer.write({"event_type": "resume_decision", **decision})
+            return local, decision
+        decision["reason"] = "auto_local_no_checkpoint"
+        events_writer.write({"event_type": "resume_decision", **decision})
+        return None, decision
 
     manifest = read_remote_json(api, cfg.model_repo_id, manifest_path, token, cfg.hub_cache)
     if manifest:
@@ -1929,6 +1944,20 @@ def latest_checkpoint_step(output_dir: Path) -> int:
     return max(steps) if steps else 0
 
 
+def latest_complete_checkpoint_step(output_dir: Path) -> int:
+    """Newest checkpoint-N whose files were all written (a Colab/Drive disconnect can leave a half-written one)."""
+    pattern = re.compile(r"^checkpoint-(\d+)$")
+    required = ("trainer_state.json", "optimizer.pt", "scheduler.pt")
+    steps = []
+    for child in output_dir.iterdir():
+        m = pattern.match(child.name)
+        if child.is_dir() and m and all((child / name).exists() for name in required) and (
+            (child / "adapter_model.safetensors").exists() or (child / "adapter_model.bin").exists()
+        ):
+            steps.append(int(m.group(1)))
+    return max(steps) if steps else 0
+
+
 def run_training() -> None:
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH, override=False)
@@ -1966,7 +1995,10 @@ def run_training() -> None:
     aux_eval_writer = JsonlWriter(cfg.output_dir / "meter_aux_eval.jsonl", enabled=True)
 
     api = HfApi(token=hf_token)
-    ensure_repo(api, cfg.model_repo_id, hf_token)
+    if cfg.push_to_hub:
+        ensure_repo(api, cfg.model_repo_id, hf_token)
+    else:
+        logger.info("push_to_hub is off: nothing will be created or uploaded on the Hub (HF_TOKEN is only used to download gated files)")
 
     fingerprint = flatten_for_fingerprint(cfg)
     dump_json(cfg.output_dir / "effective_runtime_config.json", {**config_snapshot, "config_fingerprint": fingerprint})
