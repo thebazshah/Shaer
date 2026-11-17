@@ -1,0 +1,22 @@
+# Pinned training stack for the Colab notebook (colab/reproduce_shaer_a100.ipynb): the versions of the repository's requirements.txt
+# that matter for training and generation, plus the pins needed on Python 3.12 (pyarrow, protobuf).
+# torch 2.3.1 (CUDA 12.1 build) is installed separately by the notebook, from the PyTorch wheel index.
+transformers==4.43.0
+peft==0.12.0
+bitsandbytes==0.43.3
+accelerate==0.31.0
+datasets==2.20.0
+huggingface_hub==0.23.4
+tokenizers==0.19.1
+safetensors==0.4.3
+numpy==1.26.4
+pyarrow==17.0.0
+pandas==2.2.2
+scipy==1.13.1
+scikit-learn==1.5.1
+sentencepiece==0.2.0
+protobuf==4.25.3
+python-dotenv==1.0.1
+pyyaml
+httpx
+matplotlib==3.9.2

@@ -157,11 +157,13 @@ def main() -> None:
     device = torch.device("cuda" if use_cuda else "cpu")
     dtype = getattr(torch, args.dtype)
 
+    print("[1/5] loading the test prompts ...", flush=True)
     ds = load_dataset(args.dataset_id, split=args.split, token=token)
     rows = [{"idx": i, "id": f"shaer_test_{i + 1:06d}", "row": ds[i]} for i in range(len(ds))]
     if args.limit_rows:
         rows = rows[: args.limit_rows]
 
+    print("[2/5] loading the tokenizer ...", flush=True)
     try:
         tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=args.use_fast_tokenizer, token=token)
     except ImportError as exc:
@@ -181,9 +183,12 @@ def main() -> None:
         load_kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)
     load_kwargs["device_map"] = {"": 0} if use_cuda else {"": "cpu"}
+    print(f"[3/5] loading the base model {args.base_model} in {args.dtype}"
+          f"{' (NF4 4-bit)' if args.quantize == 'nf4' else ''}; the first time this downloads about 14 GB ...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
 
     adapter_desc = "none"
+    print("[4/5] " + ("no adapter: generating with the untuned model" if args.no_adapter else "loading the adapter ..."), flush=True)
     if not args.no_adapter:
         from peft import PeftModel
 
@@ -200,6 +205,7 @@ def main() -> None:
             model = model.merge_and_unload()
     model.eval()
 
+    print("[5/5] tokenising the prompts and building batches ...", flush=True)
     # longest prompts first -> the first batch reveals the memory peak; batches are fixed so a resume reuses the same seeds
     lengths = [len(tokenizer(r["row"]["sft_prompt"], add_special_tokens=args.add_special_tokens)["input_ids"]) for r in rows]
     order = sorted(range(len(rows)), key=lambda i: -lengths[i])
@@ -268,7 +274,8 @@ def main() -> None:
                 remaining = total_rows - finished_rows
                 eta_min = (remaining / (n_new / el)) / 60 if n_new else float("nan")
                 peak = f" | peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB" if use_cuda else ""
-                print(f"[{100 * finished_rows / total_rows:5.1f}%] {finished_rows}/{total_rows} poems | sample {sample_idx} "
+                filled = int(round(20 * finished_rows / total_rows))
+                print(f"[{'█' * filled}{'░' * (20 - filled)}] {100 * finished_rows / total_rows:5.1f}% {finished_rows}/{total_rows} poems | sample {sample_idx} "
                       f"batch {b_no + 1}/{len(batches)} | last batch {dt:.0f}s | {tok_total / el:.0f} tok/s | "
                       f"{el / 60:.1f} min elapsed | ETA ~{eta_min:.0f} min{peak}", flush=True)
     summary = {"new_rows": n_new, "seconds": time.time() - t_start, "tokens": tok_total,

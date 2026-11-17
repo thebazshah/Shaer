@@ -21,8 +21,16 @@ It is not a full end-to-end reproduction notebook for training.
 
 - [reproduce_shaer_a100.ipynb](./reproduce_shaer_a100.ipynb) runs experiments E0-E3 and saves everything to Google Drive:
   E0 re-scores the released generations, E1 uses the released adapter, E2 the untuned base model, E3 re-trains.
-- It clones this repository, builds an isolated Python 3.12 environment with the pinned versions of `requirements.txt`
-  (transformers 4.43.0, peft 0.12.0, bitsandbytes 0.43.3, torch 2.3.1), and works on top of Colab's own packages.
+- The notebook is plain Python: each cell calls a function of [`shaer_colab.py`](./shaer_colab.py), which runs the repository's scripts
+  (only the package installation uses `!` commands). It clones this repository, installs an isolated Python 3.12 environment
+  from [`requirements-colab.txt`](./requirements-colab.txt) (transformers 4.43.0, peft 0.12.0, bitsandbytes 0.43.3, torch 2.3.1)
+  next to Colab's own packages, and starts the scripts with that environment's interpreter (`env_check.py` and
+  `hf_access_check.py` are the two small checks that run there).
+- **No blind waiting.** Every long step shows progress bars (downloads, model loading, tokenising, generation, scoring, training),
+  prints a heartbeat every ~20 s (time running, time silent, GPU use), and stops a step that is both silent and idle
+  (GPU below 10 % and almost no CPU) for `STALL_MINUTES`, telling you to re-run the cell, which resumes. Training runs in the
+  background; `sc.watch_training(cfg)` is a live view (bar, loss, ETA, GPU) and `auto_restart=True` restarts a hung run from its
+  last checkpoint.
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.
