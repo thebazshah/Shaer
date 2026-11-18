@@ -170,6 +170,15 @@ def summarise(recs: list[dict]) -> dict:
     res["acceptance_any_form@1.5"] = round(100 * sum(h["target_any_form"] is not None and h["target_any_form"] - h["best"] <= 1.5
                                                      for _, h in hem) / len(hem), 2)
     res["identification_top1"] = round(100 * sum(h["best_meter"] == m for m, h in hem) / len(hem), 2)
+    # which other meters accept a hemistich of meter A (margin 1.5): inherent overlaps such as الكامل with all iḍmār = الرجز
+    conf: dict = defaultdict(Counter)
+    count_by_meter = Counter(m for m, _ in hem)
+    for m, h in hem:
+        for other, c in h["other"].items():
+            if c - h["best"] <= 1.5:
+                conf[m][other] += 1
+    res["also_accepted_as@1.5"] = {m: {o: round(100 * c / count_by_meter[m], 1) for o, c in conf[m].most_common(4)}
+                                   for m in sorted(conf, key=lambda k: -count_by_meter[k])}
     per_meter = defaultdict(list)
     for m, h in hem:
         per_meter[m].append(h)
