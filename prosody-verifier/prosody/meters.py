@@ -56,8 +56,16 @@ class EndForm:
         out, seen = [], set()
         for extra, rare in [(None, False)] + [(z, False) for z in self.free] + [(z, True) for z in self.rare_free]:
             try:
-                z = combine_zihaf(self.zihaf, extra)
                 foot = FEET[self.foot]
+                if extra == "tasheeth":              # tashʿīth behaves like a zihāf: a free, non-binding variant
+                    if self.zihaf or self.illa:
+                        continue
+                    p = apply_illa(foot, "tasheeth")
+                    if (p, "tasheeth") not in seen:
+                        seen.add((p, "tasheeth"))
+                        out.append({"pattern": p, "zihaf": "tasheeth", "illa": None, "rare": rare})
+                    continue
+                z = combine_zihaf(self.zihaf, extra)
                 if self.illa in ("qatf", "tasheeth"):
                     if z:
                         continue
@@ -254,14 +262,11 @@ _meter("munsarih", "المنسرح",
 _meter("khafif", "الخفيف",
        Form("tam", "تام", ("failatun", "mustafi_lun", "failatun"),
             (_hz("khabn", "kaff?", "shakl?"), _hz("khabn", "kaff?", "shakl?")),
-            aruds=(E("A_sahih", "صحيحة", "failatun", free=("khabn",)),
-                   E("A_tasheeth", "مشعثة", "failatun", illa="tasheeth"),
+            aruds=(E("A_sahih", "صحيحة", "failatun", free=("khabn", "tasheeth")),
                    E("A_hadhf", "محذوفة", "failatun", illa="hadhf", free=("khabn",))),
-            darbs=(E("D_sahih", "صحيح", "failatun", free=("khabn",)),
-                   E("D_tasheeth", "مشعث", "failatun", illa="tasheeth"),
+            darbs=(E("D_sahih", "صحيح", "failatun", free=("khabn", "tasheeth")),
                    E("D_hadhf", "محذوف", "failatun", illa="hadhf", free=("khabn",))),
-            pairs={"A_sahih": ("D_sahih", "D_tasheeth", "D_hadhf"), "A_tasheeth": ("D_sahih", "D_tasheeth", "D_hadhf"),
-                   "A_hadhf": ("D_hadhf",)},
+            pairs={"A_sahih": ("D_sahih", "D_hadhf"), "A_hadhf": ("D_hadhf",)},
             muaqaba=((0, 1), (1, 2))),
        Form("majzu", "مجزوء", ("failatun", "mustafi_lun"), (_hz("khabn", "kaff?", "shakl?"),),
             aruds=(E("A_sahih", "صحيحة", "mustafi_lun", free=("khabn",)),),
@@ -286,11 +291,9 @@ _meter("muqtadab", "المقتضب",
 # ---------------------------------------------------------------------------------------------- المجتث (always majzūʾ)
 _meter("mujtath", "المجتث",
        Form("tam", "تام", ("mustafi_lun", "failatun"), (_hz("khabn", "kaff?", "shakl?"),),
-            aruds=(E("A_sahih", "صحيحة", "failatun", free=("khabn",)),
-                   E("A_tasheeth", "مشعثة", "failatun", illa="tasheeth")),
-            darbs=(E("D_sahih", "صحيح", "failatun", free=("khabn",)),
-                   E("D_tasheeth", "مشعث", "failatun", illa="tasheeth")),
-            pairs={"A_sahih": ("D_sahih", "D_tasheeth"), "A_tasheeth": ("D_sahih", "D_tasheeth")},
+            aruds=(E("A_sahih", "صحيحة", "failatun", free=("khabn", "tasheeth")),),
+            darbs=(E("D_sahih", "صحيح", "failatun", free=("khabn", "tasheeth")),),
+            pairs={"A_sahih": ("D_sahih",)},
             muaqaba=((0, 1),)))
 
 # ---------------------------------------------------------------------------------------------- المتقارب
@@ -308,12 +311,12 @@ _meter("mutaqarib", "المتقارب",
 # ---------------------------------------------------------------------------------------------- المتدارك
 _meter("mutadarik", "المتدارك",
        Form("tam", "تام", ("failun",) * 4, (_hz("khabn", "tasheeth"),) * 3,
-            aruds=(E("A_sahih", "صحيحة", "failun", free=("khabn",)), E("A_tasheeth", "مشعثة", "failun", illa="tasheeth")),
-            darbs=(E("D_sahih", "صحيح", "failun", free=("khabn",)), E("D_tasheeth", "مشعث", "failun", illa="tasheeth")),
-            pairs={"A_sahih": ("D_sahih", "D_tasheeth"), "A_tasheeth": ("D_sahih", "D_tasheeth")}),
+            aruds=(E("A_sahih", "صحيحة", "failun", free=("khabn", "tasheeth")),),
+            darbs=(E("D_sahih", "صحيح", "failun", free=("khabn", "tasheeth")),),
+            pairs={"A_sahih": ("D_sahih",)}),
        Form("majzu", "مجزوء", ("failun",) * 3, (_hz("khabn", "tasheeth"),) * 2,
-            aruds=(E("A_sahih", "صحيحة", "failun", free=("khabn",)),),
-            darbs=(E("D_sahih", "صحيح", "failun", free=("khabn",)), E("D_tadhyil", "مذيل", "failun", illa="tadhyil"),
+            aruds=(E("A_sahih", "صحيحة", "failun", free=("khabn", "tasheeth")),),
+            darbs=(E("D_sahih", "صحيح", "failun", free=("khabn", "tasheeth")), E("D_tadhyil", "مذيل", "failun", illa="tadhyil"),
                    E("D_tarfil", "مرفل", "failun", illa="tarfil")),
             pairs={"A_sahih": ("D_sahih", "D_tadhyil", "D_tarfil")}))
 

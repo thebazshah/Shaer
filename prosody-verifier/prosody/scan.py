@@ -26,16 +26,20 @@ class _Trie:
     def __init__(self):
         self.children: list[dict] = [{}]
         self.terminal: dict[int, list[int]] = {}
+        self.mask: list[int] = [0]          # bit set of meter ids reachable from each node
 
-    def add(self, pattern: str, label: int) -> None:
+    def add(self, pattern: str, label: int, meter_bit: int = 0) -> None:
         node = 0
+        self.mask[0] |= meter_bit
         for ch in pattern:
             nxt = self.children[node].get(ch)
             if nxt is None:
                 nxt = len(self.children)
                 self.children.append({})
+                self.mask.append(0)
                 self.children[node][ch] = nxt
             node = nxt
+            self.mask[node] |= meter_bit
         self.terminal.setdefault(node, []).append(label)
 
     def walk(self, node: int, bits: str) -> int:
@@ -44,6 +48,9 @@ class _Trie:
             if node < 0:
                 return -1
         return node
+
+
+METER_BIT = {k: 1 << i for i, k in enumerate(METERS)}
 
 
 @dataclass
@@ -61,7 +68,7 @@ def index() -> _Index:
             for pos in ("sadr", "ajuz"):
                 for a in hemistich_analyses(mk, fk, pos):
                     idx.analyses.append(a)
-                    idx.trie.add(a["pattern"], len(idx.analyses) - 1)
+                    idx.trie.add(a["pattern"], len(idx.analyses) - 1, METER_BIT[mk])
     return idx
 
 
@@ -77,20 +84,29 @@ class Match:
     rare: int
     muaqaba: list
     readings: list         # per word: the bits it contributed
+    choices: list = field(default_factory=list)   # per word: the WordReading chosen
 
     @property
     def feet_text(self) -> str:
         return " | ".join(foot_label(f) for f in self.feet)
 
 
-def scan(line: str, strict: bool = True) -> list[Match]:
-    """All meter analyses of one hemistich, cheapest first."""
+def scan(line: str, strict: bool = True, lexicon=None, meters: tuple | None = None) -> list[Match]:
+    """All meter analyses of one hemistich, cheapest first.
+
+    lexicon: a pronunciation prior (prosody.lexicon.Lexicon) that re-weights each word's readings by how the word is
+             pronounced in the corpus; without it every reading the spelling allows costs the same.
+    meters:  restrict the search to these meter keys (faster; used when verifying a requested meter).
+    """
     idx = index()
     trie = idx.trie
     words = arudi.tokenize(line)
     if not words:
         return []
     readings = [arudi.word_readings(w) for w in words]
+    if lexicon is not None:
+        readings = [lexicon.reweight(w, rs) for w, rs in zip(words, readings)]
+    want = sum(METER_BIT[m] for m in meters) if meters else -1
     # state: (trie node, pending final of the previous word) -> (cost, back-pointer)
     states: dict[tuple, tuple] = {(0, None): (0.0, None)}
     for wi, rs in enumerate(readings):
@@ -104,7 +120,7 @@ def scan(line: str, strict: bool = True) -> list[Match]:
                 body = ("1" + r.bits) if (wi == 0 and r.wasl) else r.bits     # a line-initial waṣl alif is pronounced
                 for prev_bits, pc in prev_opts:
                     n2 = trie.walk(node, prev_bits + body)
-                    if n2 < 0:
+                    if n2 < 0 or not (trie.mask[n2] & want):
                         continue
                     key = (n2, r.final)
                     c = cost + pc + r.cost
@@ -119,29 +135,33 @@ def scan(line: str, strict: bool = True) -> list[Match]:
             n2 = trie.walk(node, end_bits)
             if n2 < 0 or n2 not in trie.terminal:
                 continue
-            per_word = _backtrack(back, len(words), end_bits)
+            per_word, choices = _backtrack(back, len(words), end_bits)
             for label in trie.terminal[n2]:
                 a = idx.analyses[label]
+                if meters and a["meter"] not in meters:
+                    continue
                 if strict and a["muaqaba"]:
                     continue
                 total = cost + ec + COST_RARE_ZIHAF * a["rare"] + (COST_MUAQABA * len(a["muaqaba"]))
                 if label not in results or total < results[label].cost:
                     results[label] = Match(a["meter"], a["form"], a["position"], a["end"], a["pattern"], a["feet"], total,
-                                           a["rare"], a["muaqaba"], per_word)
+                                           a["rare"], a["muaqaba"], per_word, choices)
     return sorted(results.values(), key=lambda m: (m.cost, m.meter, m.form))
 
 
 def _backtrack(back, n_words: int, end_bits: str) -> list:
     """Bits contributed by each word on the chosen path (the previous word's final part is credited to that word)."""
     parts = [""] * n_words
+    choices = [None] * n_words
     node = back
     while node is not None:
         node, wi, prev_bits, body, r = node
         parts[wi] = body + parts[wi]
+        choices[wi] = r
         if wi > 0:
             parts[wi - 1] = parts[wi - 1] + prev_bits
     parts[-1] += end_bits
-    return parts
+    return parts, choices
 
 
 def best_by_meter(matches: list[Match]) -> dict[tuple, Match]:

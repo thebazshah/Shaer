@@ -46,6 +46,7 @@ QAT_BARE = {"الى", "الا", "الي", "ان", "انا", "انت", "انتم"
 COST_QAT_FOR_BARE_ALIF = 0.3
 COST_RARE_READING = 0.3
 COST_IMPLICIT_SHADDA = 0.3
+COST_FALLBACK = 3.0
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class WordReading:
     wasl: bool           # the word starts with hamzat al-waṣl (its alif is not in `bits`)
     cost: float
     note: str = ""
+    trace: tuple = ()    # ((letter, marks, bits), ...) for every pronounced letter, in order (generic readings only)
 
 
 def _units(word: str) -> list[tuple[str, str]]:
@@ -217,9 +219,10 @@ def _article(units: list[tuple[str, str]]) -> tuple[int, int, bool] | None:
     return None
 
 
-def word_readings(word: str) -> list[WordReading]:
-    """All readings of one written word (diacritised, partly diacritised or bare)."""
-    lex = _lexicon_readings(word)
+def word_readings(word: str, use_lexicon: bool = True) -> list[WordReading]:
+    """All readings of one written word (diacritised, partly diacritised or bare). `use_lexicon=False` skips the small
+    lexicon of irregular spellings (used to get letter traces)."""
+    lex = _lexicon_readings(word) if use_lexicon else None
     if lex is not None:
         return lex
     units = _units(word)
@@ -256,12 +259,14 @@ def word_readings(word: str) -> list[WordReading]:
                 units[nxt] = (letters[nxt], units[nxt][1] + SHADDA)
         else:
             forced[lam_i] = [("0", "s", 0.0)]
-    elif letters[0] in (ALEF, ALEF_WASL) and n > 1 and not any(m in VOWELS for m in units[0][1]):
-        if "".join(letters) in QAT_BARE:
-            forced[0] = [("1", "v", 0.0)]
+    elif letters[0] in (ALEF, ALEF_WASL) and n > 1:
+        m0 = units[0][1]
+        bare_plain = "".join(_fold(l) for l in letters)
+        if bare_plain in QAT_BARE or FATHA in m0 or DAMMA in m0:
+            forced[0] = [("1", "v", 0.0)]  # an unwritten hamzat qaṭʿ (اِذا = إذا, اَنت = أنت)
         else:
-            wasl = True
-            alt_qat = letters[0] == ALEF   # a bare alif may also be an unwritten hamzat qaṭʿ
+            wasl = True                    # bare ا or اِ: hamzat al-waṣl (اِعمَلوا، ابن) ...
+            alt_qat = letters[0] == ALEF   # ... or, in this corpus, an unwritten hamza with kasra (اِنّي = إنّي)
             skip.add(0)
 
     # --- silent letters at the end
@@ -287,11 +292,13 @@ def word_readings(word: str) -> list[WordReading]:
             return [("10", "m", 0.0)]                                 # ʾā
         if letter in (ALEF_HAMZA_A, ALEF_HAMZA_B) and i == idxs[0]:
             return [("1", "v", 0.0)]                                  # hamzat qaṭʿ at the start always has a vowel
+        if letter == ALEF and art is not None and i == art[1] + 1:
+            return [("1", "v", 0.0)]      # an alif right after the article's lām is a hamza: الاِخيار = al-ʾakhyār
         if letter in (ALEF, ALEF_WASL) or letter == ALEF_MAQSURA:
             return [("0", "m", 0.0)]      # long ā (a fatḥa typed on it, as in لاَ, belongs to the letter before)
         if letter == TA_MARBUTA and not any(m in VOWELS | TANWIN | {SUKUN} for m in marks):
             return [("1", "v", 0.0), ("10", "n", 0.1), ("0", "p", 0.0)] if is_last else [("1", "v", 0.0)]
-        if SHADDA not in marks and SUKUN not in marks and pos_of(i) > 0 and letter not in (ALEF, ALEF_WASL, ALEF_MAQSURA, TA_MARBUTA, ALEF_MADDA):
+        if SHADDA not in marks and SUKUN not in marks and (pos_of(i) > 0 or wasl) and letter not in (ALEF, ALEF_WASL, ALEF_MAQSURA, TA_MARBUTA, ALEF_MADDA):
             # an unwritten shadda: the consonant may be doubled (common in partly vowelled text: مجربة = مُجَرَّبة,
             # حبٍّ written حبٍ, البريّات)
             base = options_plain(i)
@@ -328,12 +335,12 @@ def word_readings(word: str) -> list[WordReading]:
             opts = opts + [("10", "m", 0.1)]
         return opts
 
-    def dfs(pos: int, acc: str, cost: float, kind: str) -> None:
+    def dfs(pos: int, acc: str, cost: float, kind: str, trace: tuple = ()) -> None:
         if pos == len(idxs):
             if kind == "n":
-                readings.append(WordReading(acc[:-2], "n", wasl, cost))
+                readings.append(WordReading(acc[:-2], "n", wasl, cost, "", trace))
             else:
-                readings.append(WordReading(acc[:-1], {"v": "1", "s": "0", "m": "m", "p": "p"}[kind], wasl, cost))
+                readings.append(WordReading(acc[:-1], {"v": "1", "s": "0", "m": "m", "p": "p"}[kind], wasl, cost, "", trace))
             return
         last = pos == len(idxs) - 1
         for bits, k, c in (last_options(idxs[pos], acc) if last else options(idxs[pos])):
@@ -344,22 +351,31 @@ def word_readings(word: str) -> list[WordReading]:
                 continue           # two sākin letters do not meet inside a word (a final pause is judged later)
             if k == "m" and bits == "0" and (not acc or acc[-1] != "1"):
                 continue           # a long vowel needs a vowel before it
-            dfs(pos + 1, new, cost + c, k)
+            dfs(pos + 1, new, cost + c, k, trace + ((units[idxs[pos]][0], units[idxs[pos]][1], bits),))
 
     dfs(0, "", 0.0, "")
     # (c) و / ف + a bare alif may be the proclitic followed by a silent hamzat al-waṣl (فامْدُدْ، واستغنم): then the next
     #     letter is sākin
-    if art is None and n > 3 and letters[0] in ("\u0648", "\u0641") and letters[1] == ALEF and not units[1][1]:
+    if art is None and n > 3 and letters[0] in ("\u0648", "\u0641") and letters[1] == ALEF and \
+            not any(m in (DAMMA,) for m in units[1][1]):
         saved = list(readings)
         readings.clear()
         idxs[:] = [i for i in idxs if i != 1]
         forced[2] = [("0", "s", 0.0)] if not any(m in VOWELS | TANWIN for m in units[2][1]) and SHADDA not in units[2][1] else forced.get(2, [])
         if forced[2]:
             dfs(0, "", 0.2, "")
-        readings[:] = saved + [WordReading(r.bits, r.final, r.wasl, r.cost, "silent alif after a proclitic") for r in readings]
+        readings[:] = saved + [WordReading(r.bits, r.final, r.wasl, r.cost, "silent alif after a proclitic", r.trace)
+                               for r in readings]
     if alt_qat:
-        readings += [WordReading("1" + r.bits, r.final, False, r.cost + COST_QAT_FOR_BARE_ALIF, "bare alif read as hamza")
-                     for r in list(readings)]
+        readings += [WordReading("1" + r.bits, r.final, False, r.cost + COST_QAT_FOR_BARE_ALIF, "bare alif read as hamza",
+                                 ((ALEF, "", "1"),) + r.trace) for r in list(readings)]
+    if not readings:
+        # nothing satisfies the constraints (a typo, an unusual spelling): fall back to reading every letter as written,
+        # with unmarked letters voweled, at a high cost so the word only fits a meter when nothing else does
+        bits = "".join("0" if (SUKUN in m or l in (ALEF, ALEF_MAQSURA)) else "1" for i, (l, m) in enumerate(units)
+                       if i not in skip)
+        if bits:
+            readings.append(WordReading(bits[:-1], "1" if bits[-1] == "1" else "0", False, COST_FALLBACK, "fallback"))
     best: dict[tuple, WordReading] = {}
     for r in readings:
         key = (r.bits, r.final, r.wasl)
