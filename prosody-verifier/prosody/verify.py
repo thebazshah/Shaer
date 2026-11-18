@@ -19,6 +19,7 @@ Strictness tiers:
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 from dataclasses import dataclass, field
 
 from . import arudi, qafiya
@@ -99,6 +100,30 @@ class PoemVerdict:
             "per_bayt": [{"i": b.index, "ok": b.ok, "arud": b.arud, "darb": b.darb, "tasri": b.tasri, "tadwir": b.tadwir,
                           "reason": b.reason, "sadr": b.sadr.summary(), "ajuz": b.ajuz.summary()} for b in self.bayts],
         }
+
+
+@lru_cache(maxsize=64)
+def _bayt_index(meter: str, form: str):
+    """A trie of every permitted ʿarūḍ + ḍarb concatenation of one meter form, for scanning a mudawwar bayt as one line.
+    Each label's `end` is (ʿarūḍ, ḍarb, split position); `pairs` maps (pattern, split) back to the two analyses."""
+    from .scan import _Index, METER_BIT
+    f = METERS[meter].forms[form]
+    sadr_as = list(hemistich_analyses(meter, form, "sadr"))
+    ajuz_as = list(hemistich_analyses(meter, form, "ajuz"))
+    idx, pairs = _Index(), {}
+    for s in sadr_as:
+        for a in ajuz_as:
+            if a["end"] not in f.pairs.get(s["end"], ()):
+                continue
+            key = (s["pattern"] + a["pattern"], len(s["pattern"]))
+            if key in pairs:
+                continue
+            pairs[key] = (s, a)
+            idx.analyses.append({"meter": meter, "form": form, "position": "bayt", "end": (s["end"], a["end"], key[1]),
+                                 "pattern": key[0], "feet": s["feet"] + a["feet"], "rare": s["rare"] + a["rare"],
+                                 "muaqaba": s["muaqaba"] + a["muaqaba"]})
+            idx.trie.add(key[0], len(idx.analyses) - 1, METER_BIT[meter])
+    return idx, pairs
 
 
 class Verifier:
@@ -184,26 +209,34 @@ class Verifier:
         return BaytVerdict(0, sv, av, False, "", "", False, False, reason), sc, ac
 
     def _tadwir(self, sadr: str, ajuz: str, meter: str, form: str):
-        """A word split across the hemistichs (الخَل / قِ): join the two halves and look for a split point inside it."""
+        """A mudawwar bayt: the two hemistichs are one continuous line whose prosodic split falls inside a word.
+        Two layouts occur: the written split is inside the word (الخَل / قِ: the halves are joined), or the whole word
+        was written in one hemistich (... مِنَ الأَمرِ / لَهُ ...: the line is read connected). The connected reading is
+        scanned against every permitted ʿarūḍ + ḍarb concatenation of the form (the same search and pronunciation prior
+        as a hemistich), and the split must fall strictly inside a word: a line break misplaced between whole words is
+        not tadwīr. Inside a word the sadr's end is not lengthened, so its final sākin is a real one."""
         sw, aw = arudi.tokenize(self._text(sadr)), arudi.tokenize(self._text(ajuz))
         if not sw or not aw:
             return None
-        whole = sw[-1] + aw[0]
-        f = METERS[meter].forms[form]
-        sadr_pats = {a["pattern"]: a for a in hemistich_analyses(meter, form, "sadr")}
-        ajuz_pats = {a["pattern"]: a for a in hemistich_analyses(meter, form, "ajuz")}
-        from .scan import candidate_bit_strings
-        joined_line = " ".join(sw[:-1] + [whole] + aw[1:])
-        for bits, cost in candidate_bit_strings(joined_line, limit=256):
-            for k in range(8, len(bits) - 7):
-                sp, ap = bits[:k], bits[k:]
-                # inside a word the sadr's end is not lengthened, so its final sākin must be real
-                if sp in sadr_pats and ap in ajuz_pats and ajuz_pats[ap]["end"] in f.pairs.get(sadr_pats[sp]["end"], ()):
-                    s, a = sadr_pats[sp], ajuz_pats[ap]
-                    mk = lambda x: Match(meter, form, x["position"], x["end"], x["pattern"], x["feet"], cost, x["rare"],
-                                         x["muaqaba"], [])
-                    return mk(s), mk(a)
-        return None
+        idx, pairs = _bayt_index(meter, form)
+        best = None
+        for joined_line in (" ".join(sw[:-1] + [sw[-1] + aw[0]] + aw[1:]), " ".join(sw + aw)):
+            for m in scan(joined_line, strict=self.strict, lexicon=self.lexicon, idx=idx):
+                if m.cost > self.max_cost or (best is not None and m.cost >= best[0]):
+                    break
+                k = m.end[2]
+                bounds, acc = set(), 0
+                for part in m.readings:
+                    acc += len(part)
+                    bounds.add(acc)
+                if k in bounds:
+                    continue
+                s, a = pairs[(m.pattern, k)]
+                mk = lambda x: Match(meter, form, x["position"], x["end"], x["pattern"], x["feet"], m.cost, x["rare"],
+                                     x["muaqaba"], [])
+                best = (m.cost, mk(s), mk(a))
+                break
+        return None if best is None else best[1:]
 
     # ---------------------------------------------------------------------------------------------- poem
     def poem(self, text_or_lines, meter: str, form: str = "tam", requested_lines: int | None = None,

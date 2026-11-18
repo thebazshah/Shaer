@@ -237,3 +237,14 @@ def test_compare_bilstm_reason_kinds():
     assert reason_kinds("ʿajuz: not in kamil (tam); scans as rajaz (tam)") == ["ajuz: scans only in another meter or form"]
     assert reason_kinds("the ʿarūḍ and ḍarb forms are not a permitted pair") == [
         "bayt: the ʿarūḍ and ḍarb forms are not a permitted pair"]
+
+
+def test_tadwir_with_the_split_word_written_whole_in_the_sadr():
+    """رُبَّما تَجزَعُ النُفوسُ مِنَ الأَمـ / ـرِ لَهُ فَرجَةٌ كَحَلِّ العِقالِ, with الامر written whole in the sadr (corpus layout,
+    shaer_test test split); a line break misplaced between whole words is not tadwīr."""
+    v = Verifier()
+    bv, _, _ = v.bayt("ربما تجزع النفوس من الامر", "له فرجة كحل العقال", "khafif", "tam")
+    assert bv.ok and bv.tadwir
+    assert bv.sadr.match.pattern.endswith("0")
+    bv, _, _ = v.bayt("قِفَا نَبْكِ مِنْ ذِكْرَى حَبِيبٍ", "وَمَنْزِلِ بِسِقْطِ اللِّوَى بَيْنَ الدَّخُولِ فَحَوْمَلِ", "tawil", "tam")
+    assert not bv.ok and not bv.tadwir

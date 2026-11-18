@@ -91,14 +91,15 @@ class Match:
         return " | ".join(foot_label(f) for f in self.feet)
 
 
-def scan(line: str, strict: bool = True, lexicon=None, meters: tuple | None = None) -> list[Match]:
+def scan(line: str, strict: bool = True, lexicon=None, meters: tuple | None = None, idx: "_Index | None" = None) -> list[Match]:
     """All meter analyses of one hemistich, cheapest first.
 
     lexicon: a pronunciation prior (prosody.lexicon.Lexicon) that re-weights each word's readings by how the word is
              pronounced in the corpus; without it every reading the spelling allows costs the same.
     meters:  restrict the search to these meter keys (faster; used when verifying a requested meter).
+    idx:     another pattern index (the verifier's whole-bayt index for tadwīr); default: every hemistich pattern.
     """
-    idx = index()
+    idx = idx or index()
     trie = idx.trie
     words = arudi.tokenize(line)
     if not words:

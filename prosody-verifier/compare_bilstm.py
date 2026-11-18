@@ -49,16 +49,24 @@ def _work(rows):
         pv = V.poem(lines[: len(lines) // 2 * 2], meter, form)
         # the same bayts in any form of the meter (the Shaer metric only knows base meters)
         forms_ok = {}
+        # margin-independent view: does every hemistich have some reading in the meter at all (any form, any cost)?
+        def readable(b):
+            return b.ok or (b.sadr.match is not None and b.ajuz.match is not None)
+        forms_readable = [[readable(b) for b in pv.bayts]]
         for fk in METERS[meter].forms:
             if fk != form:
-                forms_ok[fk] = [b.ok for b in V.poem(lines[: len(lines) // 2 * 2], meter, fk).bayts]
+                other = V.poem(lines[: len(lines) // 2 * 2], meter, fk).bayts
+                forms_ok[fk] = [b.ok for b in other]
+                forms_readable.append([readable(b) for b in other])
         for b in pv.bayts:
             d = next((x for x in details if x.get("bayt_index") == b.index), None)
             if d is None or d.get("skipped") or not d.get("pred"):
                 continue
             any_form = b.ok or any(v[b.index] for v in forms_ok.values() if b.index < len(v))
+            has_reading = any(v[b.index] for v in forms_readable if b.index < len(v))
             out.append({"id": r.get("id"), "meter": meter, "form": form, "bayt": b.index, "bilstm": d["pred"] == target_ar,
                         "bilstm_pred": d["pred"], "p_target": d.get("p_target"), "verifier": b.ok, "verifier_any_form": any_form,
+                        "has_reading_in_meter": has_reading,
                         "reason": b.reason, "sadr": b.sadr.text, "ajuz": b.ajuz.text,
                         "sadr_feet": b.sadr.match and b.sadr.match.feet_text, "ajuz_feet": b.ajuz.match and b.ajuz.match.feet_text})
     return out
@@ -134,6 +142,12 @@ def main() -> None:
                            "verifier_ok_pct": round(100 * sum(r["verifier"] for r in v) / len(v), 1),
                            "verifier_any_form_pct": round(100 * sum(r["verifier_any_form"] for r in v) / len(v), 1)}
                        for m, v in sorted(per.items(), key=lambda kv: -len(kv[1]))}
+    acc = [r for r in recs if r["bilstm"]]
+    res["no_reading_in_meter"] = {
+        "all_bayts_pct": round(100 * sum(not r["has_reading_in_meter"] for r in recs) / max(1, len(recs)), 2),
+        "bilstm_accepted_bayts_pct": round(100 * sum(not r["has_reading_in_meter"] for r in acc) / max(1, len(acc)), 2),
+        "note": "share of bayts with a hemistich that has no reading at all in the requested meter, in any form and at any "
+                "cost (independent of the margin rule and of the pronunciation prior's costs)"}
     # why the verifier rejects the bayts the BiLSTM accepts (share of those bayts; a bayt can have two kinds)
     rej = [r for r in recs if r["bilstm"] and not r["verifier_any_form"]]
     kinds = Counter(k for r in rej for k in set(reason_kinds(r["reason"])))
