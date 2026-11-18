@@ -377,7 +377,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         live_eval_steps=int(env_or("SFT_LIVE_EVAL_STEPS", mode_overrides.get("live_eval_steps", training.get("eval_steps", defaults.get("live_eval_steps", 50))))),
         full_eval_steps=int(env_or("SFT_FULL_EVAL_STEPS", mode_overrides.get("full_eval_steps", training.get("eval_steps", defaults.get("full_eval_steps", 100))))),
         logging_steps=int(mode_overrides.get("logging_steps", training.get("logging_steps", defaults.get("logging_steps", 1)))),
-        save_total_limit=int(mode_overrides.get("save_total_limit", training.get("save_total_limit", defaults.get("save_total_limit", 6)))),
+        save_total_limit=int(env_or("SFT_SAVE_TOTAL_LIMIT", mode_overrides.get("save_total_limit", training.get("save_total_limit", defaults.get("save_total_limit", 6))))),
         remote_keep_last_checkpoints=int(defaults.get("remote_keep_last_checkpoints", 12)),
         bf16=str(env_or("SFT_BF16", training.get("bf16", defaults.get("bf16", "auto")))).lower(),
         fp16=str2bool(env_or("SFT_FP16", training.get("fp16", False))),
@@ -1874,19 +1874,34 @@ class MeterAuxEvalCallback(TrainerCallback):
 class RescueSaveCallback(TrainerCallback):
     """Extra resume checkpoints between the regular ones, for runs that can be interrupted (for example on Colab).
 
-    Off by default (SFT_RESCUE_SAVE_STEPS unset or 0), so the paper's schedule is untouched. When on, a checkpoint is also written
-    every `every` optimiser steps. Evaluation, the probe generation and the best-checkpoint selection still happen only at the
-    regular `save_steps` (a save without an evaluation leaves the Trainer's best-checkpoint bookkeeping alone, and rotation never
-    deletes the best checkpoint). Hugging Face does not allow `save_steps` below `eval_steps` together with
-    load_best_model_at_end, which is why this is a separate mechanism.
+    Off by default (SFT_RESCUE_SAVE_STEPS and SFT_RESCUE_SAVE_MINUTES unset or 0), so the paper's schedule is untouched. When on, a
+    checkpoint is also written every `every` optimiser steps and/or once `minutes` of wall-clock time have passed since the last
+    checkpoint of any kind (the timer starts when training starts, so model loading does not count, and restarts after every save).
+    Evaluation, the probe generation and the best-checkpoint selection still happen only at the regular `save_steps` (a save without an
+    evaluation leaves the Trainer's best-checkpoint bookkeeping alone, and rotation never deletes the best checkpoint). Hugging Face
+    does not allow `save_steps` below `eval_steps` together with load_best_model_at_end, which is why this is a separate mechanism.
     """
 
-    def __init__(self, every: int):
+    def __init__(self, every: int = 0, minutes: float = 0.0):
         self.every = int(every)
+        self.interval_s = max(0.0, float(minutes)) * 60.0
+        self.last_save = time.monotonic()
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        self.last_save = time.monotonic()
+        return control
 
     def on_step_end(self, args, state, control, **kwargs):
-        if self.every > 0 and state.global_step > 0 and state.global_step % self.every == 0:
+        if state.global_step <= 0:
+            return control
+        if self.every > 0 and state.global_step % self.every == 0:
             control.should_save = True
+        if self.interval_s > 0 and time.monotonic() - self.last_save >= self.interval_s:
+            control.should_save = True
+        return control
+
+    def on_save(self, args, state, control, **kwargs):
+        self.last_save = time.monotonic()
         return control
 
 
@@ -2185,10 +2200,15 @@ def run_training() -> None:
 
     callbacks = [metrics_cb, hub_cb, meter_aux_eval_cb, probe_cb]
     rescue_every = int(os.getenv("SFT_RESCUE_SAVE_STEPS", "0") or 0)
-    if rescue_every > 0:
-        callbacks.append(RescueSaveCallback(rescue_every))
-        logger.info("Extra resume checkpoints every %d steps (regular: every %d; evaluation and best-checkpoint selection stay on the "
-                    "regular schedule)", rescue_every, cfg.save_steps)
+    rescue_minutes = float(os.getenv("SFT_RESCUE_SAVE_MINUTES", "0") or 0)
+    if rescue_every > 0 or rescue_minutes > 0:
+        callbacks.append(RescueSaveCallback(rescue_every, rescue_minutes))
+        if rescue_every > 0:
+            logger.info("Extra resume checkpoints every %d steps (regular: every %d; evaluation and best-checkpoint selection stay on "
+                        "the regular schedule)", rescue_every, cfg.save_steps)
+        if rescue_minutes > 0:
+            logger.info("Extra resume checkpoint whenever %.1f minutes have passed since the last checkpoint (regular: every %d steps; "
+                        "evaluation and best-checkpoint selection stay on the regular schedule)", rescue_minutes, cfg.save_steps)
     trainer = WeightedSFTTrainer(
         model=model,
         args=training_args,
