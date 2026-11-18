@@ -680,9 +680,9 @@ def _training_progress(cfg: Config) -> dict:
     return info
 
 
-def _render_training(info: dict, alive: bool, finished: bool, gpu: tuple | None) -> str:
+def _render_training(info: dict, alive: bool, finished: bool, gpu: tuple | None, cpu_share: float | None = None) -> str:
     state = "FINISHED" if finished else ("RUNNING" if alive else "NOT running")
-    out = [f"training: {state} | {_gpu_text(gpu)}"]
+    out = [f"training: {state} | {_gpu_text(gpu)}" + ("" if cpu_share is None else f" | CPU {100 * cpu_share:.0f}%")]
     if info["step"] is not None and info["total"]:
         frac = info["step"] / info["total"]
         out.append(f"  [{_bar(frac, 30)}] {100 * frac:5.1f}%  step {info['step']:,}/{info['total']:,}"
@@ -709,7 +709,8 @@ def watch_training(cfg: Config, every: int = 20, auto_restart: bool = False, max
     """Live view of the background run; returns when training finishes, dies, or looks stuck.
 
     Stopping this cell (the stop button) is safe: training keeps running in the background. Stuck means: the log has not changed
-    for `cfg.stall_minutes` and the GPU is idle. With `auto_restart=True` a stuck run is stopped and restarted from its last
+    for `cfg.stall_minutes`, the GPU is idle AND the training process uses almost no CPU (so the long, silent, CPU-only data
+    preparation before the first step, e.g. packing the training set, is never mistaken for a hang). With `auto_restart=True` a stuck run is stopped and restarted from its last
     checkpoint (up to `max_restarts` times), which is what you want when Colab hangs while you are away.
     """
     try:
@@ -717,13 +718,20 @@ def watch_training(cfg: Config, every: int = 20, auto_restart: bool = False, max
     except Exception:
         clear_output = None
     began, restarts = time.time(), 0
+    cpu_pid, last_cpu, last_tick = None, None, None
     try:
         while True:
-            info, alive = _training_progress(cfg), _training_pid(cfg) is not None
+            pid = _training_pid(cfg)
+            info, alive = _training_progress(cfg), pid is not None
             finished, gpu = (cfg.run_dir / "run_summary.json").exists(), _gpu_stats()
+            now, cpu = time.time(), (_cpu_seconds(pid) if pid else None)
+            cpu_share = None
+            if pid is not None and pid == cpu_pid and cpu is not None and last_cpu is not None:
+                cpu_share = (cpu - last_cpu) / max(now - last_tick, 1e-9)     # 1.0 = one core fully busy
+            cpu_pid, last_cpu, last_tick = pid, cpu, now
             if clear_output:
                 clear_output(wait=True)
-            print(_render_training(info, alive, finished, gpu))
+            print(_render_training(info, alive, finished, gpu, cpu_share))
             if finished:
                 print("✔ training finished: run the generation step (7c)")
                 return
@@ -737,9 +745,10 @@ def watch_training(cfg: Config, every: int = 20, auto_restart: bool = False, max
             except OSError:
                 since_start = time.time() - began
             age = since_start if info["log_age"] is None else min(info["log_age"], since_start)
-            if age >= cfg.stall_seconds and not (gpu and gpu[0] >= 10):
-                print(f"⚠ no log output for {_fmt(age)} and " + ("the GPU is idle" if gpu else "no GPU activity could be read")
-                      + ": the run looks stuck (Colab sometimes hangs).")
+            cpu_busy = cpu_share is None or cpu_share >= 0.2    # unknown (first look) counts as busy: never restart blind
+            if age >= cfg.stall_seconds and not (gpu and gpu[0] >= 10) and not cpu_busy:
+                print(f"⚠ no log output for {_fmt(age)}, " + ("the GPU is idle" if gpu else "no GPU activity could be read")
+                      + f" and the CPU is idle ({100 * cpu_share:.0f}%): the run looks stuck (Colab sometimes hangs).")
                 if auto_restart and restarts < max_restarts:
                     restarts += 1
                     print(f"  restarting from the last checkpoint (restart {restarts}/{max_restarts}) ...")

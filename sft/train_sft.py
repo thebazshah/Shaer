@@ -977,11 +977,23 @@ def pack_preprocessed_dataset(ds: Dataset, cfg: RuntimeConfig, logger: logging.L
         current_meta = None
         packed_examples = 0
 
+    # This is a pure-Python pass over every row with no progress bar of its own (several minutes on the full training set on a
+    # Colab CPU), so it logs its progress: otherwise the log is silent and the run looks hung.
+    total_rows, started, last_report = len(ds), time.time(), time.time()
+    logger.info("%s: packing %d rows into sequences of %d tokens (CPU only, no progress bar; a few minutes for the full train set)",
+                desc, total_rows, cfg.max_seq_length)
     by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in ds:
+    for i, row in enumerate(ds, 1):
         by_group[str(row["sampler_group"])].append(row)
+        if time.time() - last_report >= 30:
+            logger.info("%s: read %d/%d rows (%.0f s)", desc, i, total_rows, time.time() - started)
+            last_report = time.time()
 
-    for group in sorted(by_group):
+    for g_index, group in enumerate(sorted(by_group), 1):
+        if time.time() - last_report >= 30:
+            logger.info("%s: packed group %d/%d, %d sequences so far (%.0f s)", desc, g_index, len(by_group), len(packed_rows),
+                        time.time() - started)
+            last_report = time.time()
         current_input_ids = []
         current_labels = []
         current_meta = None
@@ -1014,8 +1026,9 @@ def pack_preprocessed_dataset(ds: Dataset, cfg: RuntimeConfig, logger: logging.L
                     flush_current()
         flush_current()
 
+    logger.info("%s: building the dataset from %d packed sequences (%.0f s so far)", desc, len(packed_rows), time.time() - started)
     packed_ds = Dataset.from_list(packed_rows)
-    logger.info("%s sequences after packing: %d", desc, len(packed_ds))
+    logger.info("%s sequences after packing: %d (%.0f s)", desc, len(packed_ds), time.time() - started)
     return packed_ds
 
 
