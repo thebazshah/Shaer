@@ -86,6 +86,7 @@ class Form:
     pairs: dict                     # arud key -> tuple of darb keys
     muaqaba: tuple = ()             # forbidden adjacent (kaff on foot i, khabn on foot i+1) positions (i, i+1)
     muraqaba: tuple = ()            # hashw positions whose foot may not stay sound (المضارع، المقتضب)
+    kharm: bool = False             # kharm (thalm / tharm) allowed, rarely, in the first foot of the sadr (فعولن)
 
     def end(self, key: str) -> EndForm:
         for e in self.aruds + self.darbs:
@@ -121,7 +122,7 @@ _meter("tawil", "الطويل",
             aruds=(E("A_qabd", "مقبوضة", "mafailun", zihaf="qabd"),),
             darbs=(E("D_sahih", "صحيح", "mafailun"), E("D_qabd", "مقبوض", "mafailun", zihaf="qabd"),
                    E("D_hadhf", "محذوف", "mafailun", illa="hadhf")),
-            pairs={"A_qabd": ("D_sahih", "D_qabd", "D_hadhf")}))
+            pairs={"A_qabd": ("D_sahih", "D_qabd", "D_hadhf")}, kharm=True))
 
 # ---------------------------------------------------------------------------------------------- المديد (always majzūʾ)
 _meter("madid", "المديد",
@@ -298,7 +299,7 @@ _meter("mutaqarib", "المتقارب",
             aruds=(E("A_sahih", "صحيحة", "faulun"), E("A_hadhf", "محذوفة", "faulun", illa="hadhf")),
             darbs=(E("D_sahih", "صحيح", "faulun"), E("D_qasr", "مقصور", "faulun", illa="qasr"),
                    E("D_hadhf", "محذوف", "faulun", illa="hadhf"), E("D_batr", "أبتر", "faulun", illa="batr")),
-            pairs={"A_sahih": ("D_sahih", "D_qasr", "D_hadhf", "D_batr"), "A_hadhf": ("D_hadhf", "D_batr")}),
+            pairs={"A_sahih": ("D_sahih", "D_qasr", "D_hadhf", "D_batr"), "A_hadhf": ("D_hadhf", "D_batr")}, kharm=True),
        Form("majzu", "مجزوء", ("faulun",) * 3, (_hz("qabd"),) * 2,
             aruds=(E("A_hadhf", "محذوفة", "faulun", illa="hadhf"),),
             darbs=(E("D_hadhf", "محذوف", "faulun", illa="hadhf"), E("D_batr", "أبتر", "faulun", illa="batr")),
@@ -345,7 +346,7 @@ def hashw_options(form: Form, i: int) -> list[dict]:
 
 
 def _has(z: str | None, part: str) -> bool:
-    return bool(z) and z != "tasheeth" and part in ZIHAF_PARTS[z]
+    return bool(z) and z in ZIHAF_PARTS and part in ZIHAF_PARTS[z]
 
 
 def hemistich_analyses(meter_key: str, form_key: str, position: str):
@@ -355,6 +356,9 @@ def hemistich_analyses(meter_key: str, form_key: str, position: str):
     ends = form.aruds if position == "sadr" else form.darbs
     used_ends = set(form.pairs) if position == "sadr" else {d for ds in form.pairs.values() for d in ds}
     hashw = [hashw_options(form, i) for i in range(len(form.hashw) - 1)]
+    if form.kharm and position == "sadr" and form.hashw[0] == "faulun":
+        hashw[0] = hashw[0] + [{"pattern": "1010", "zihaf": "thalm", "rare": True},     # (فـ)عولن
+                               {"pattern": "101", "zihaf": "tharm", "rare": True}]      # (فـ)عولُ
     for end in ends:
         if end.key not in used_ends:
             continue
@@ -373,7 +377,8 @@ def hemistich_analyses(meter_key: str, form_key: str, position: str):
 def foot_label(f: dict) -> str:
     parts = [FEET[f["foot"]].name]
     if f.get("zihaf"):
-        parts.append(ILLA_NAMES["tasheeth"] if f["zihaf"] == "tasheeth" else ZIHAF_NAMES[f["zihaf"]])
+        z = f["zihaf"]
+        parts.append(ILLA_NAMES["tasheeth"] if z == "tasheeth" else {"thalm": "ثلم", "tharm": "ثرم"}.get(z) or ZIHAF_NAMES[z])
     if f.get("illa"):
         parts.append(ILLA_NAMES[f["illa"]])
     return " ".join(parts)
