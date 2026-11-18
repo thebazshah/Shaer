@@ -64,6 +64,30 @@ def _work(rows):
     return out
 
 
+def reason_kinds(reason: str) -> list[str]:
+    """Why a bayt was rejected, one kind per failing hemistich (plus the pairing rule), from the verifier's reason text
+    ("sadr: <why>; ʿajuz: <why>", where <why> may itself contain "; ")."""
+    import re
+    kinds = []
+    for who, why in re.findall(r"(?:^|; )(sadr|ʿajuz): (.*?)(?=; (?:sadr|ʿajuz): |$)", reason or ""):
+        who = "sadr" if who == "sadr" else "ajuz"
+        if "scans in no meter" in why:
+            kinds.append(who + ": no reading in any meter")
+        elif "scans as" in why:
+            kinds.append(who + ": scans only in another meter or form")
+        elif "reads more naturally" in why:
+            kinds.append(who + ": in the meter, but another meter is far more natural")
+        elif "implausible readings" in why:
+            kinds.append(who + ": only through implausible readings")
+        else:
+            kinds.append(who + ": other")
+    if "not a permitted pair" in (reason or ""):
+        kinds.append("bayt: the ʿarūḍ and ḍarb forms are not a permitted pair")
+    if reason and not kinds:
+        kinds.append("other: " + reason[:60])
+    return kinds
+
+
 def kappa(a: list[bool], b: list[bool]) -> float:
     n = len(a)
     po = sum(x == y for x, y in zip(a, b)) / n
@@ -110,6 +134,11 @@ def main() -> None:
                            "verifier_ok_pct": round(100 * sum(r["verifier"] for r in v) / len(v), 1),
                            "verifier_any_form_pct": round(100 * sum(r["verifier_any_form"] for r in v) / len(v), 1)}
                        for m, v in sorted(per.items(), key=lambda kv: -len(kv[1]))}
+    # why the verifier rejects the bayts the BiLSTM accepts (share of those bayts; a bayt can have two kinds)
+    rej = [r for r in recs if r["bilstm"] and not r["verifier_any_form"]]
+    kinds = Counter(k for r in rej for k in set(reason_kinds(r["reason"])))
+    res["rejection_kinds_of_bilstm_accepted"] = {"bayts": len(rej), **{k: round(100 * v / max(1, len(rej)), 1)
+                                                                    for k, v in kinds.most_common()}}
     rng = random.Random(5)
     dis = [r for r in recs if r["bilstm"] != r["verifier_any_form"]]
     res["disagreement_sample"] = rng.sample(dis, min(args.samples, len(dis)))

@@ -226,3 +226,14 @@ def test_margin_rival_must_fit_the_same_position():
     assert bv.ok, bv.reason
     assert all(m.position == "sadr" for m in sc)
     assert bv.sadr.best_any is None or bv.sadr.best_any.position == "sadr"
+
+
+def test_compare_bilstm_reason_kinds():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from compare_bilstm import reason_kinds
+    assert reason_kinds("sadr: not in kamil (tam); scans in no meter; ʿajuz: reads more naturally as rajaz (cost 0.0 vs 3.0)") == [
+        "sadr: no reading in any meter", "ajuz: in the meter, but another meter is far more natural"]
+    assert reason_kinds("ʿajuz: not in kamil (tam); scans as rajaz (tam)") == ["ajuz: scans only in another meter or form"]
+    assert reason_kinds("the ʿarūḍ and ḍarb forms are not a permitted pair") == [
+        "bayt: the ʿarūḍ and ḍarb forms are not a permitted pair"]
