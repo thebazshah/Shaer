@@ -39,6 +39,9 @@ It is not a full end-to-end reproduction notebook for training.
   interruption loses fewer steps. Evaluation, the probe and best-checkpoint selection stay on the 200-step schedule (Hugging Face does not
   allow a save interval below the evaluation interval with `load_best_model_at_end`, so this is a separate resume-only mechanism,
   `SFT_RESCUE_SAVE_STEPS` in `sft/train_sft.py`, off by default).
+- `sc.start_training(cfg)` also writes a resume checkpoint every 10 minutes of training by default (`save_minutes=10`; about every
+  32 steps on an L4, about every 60 on an A100), so a slow GPU does not run for hours without one. Same resume-only mechanism
+  (`SFT_RESCUE_SAVE_MINUTES`); `save_minutes=None` turns it off.
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.
