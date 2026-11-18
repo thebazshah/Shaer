@@ -276,16 +276,26 @@ def m1_report(pv: PVConfig) -> str:
             out += [f"| poems: every bayt accepted | {pl['meter_ok_pct']}% |", f"| poems: rhyme passes | {pl['rhyme_ok_pct']}% |",
                     f"| planted rhyme breaks flagged | {pl['rhyme_negative_flagged_pct']}% |"]
         out.append("")
-    rows = []
+    rows, kinds = [], []
     for name in ("e0", "e0_bare", "reference", "reference_bare"):
         p = d / f"bilstm_{name}.json"
         if p.exists():
             r = json.loads(p.read_text(encoding="utf-8"))
             v = r["verifier_any_form"]
-            rows.append(f"| {name} | {r['bayts']:,} | {v['bilstm_ok_pct']}% | {v['verifier_ok_pct']}% | {v['kappa']} |")
+            nr = r.get("no_reading_in_meter", {})
+            rows.append(f"| {name} | {r['bayts']:,} | {v['bilstm_ok_pct']}% | {v['verifier_ok_pct']}% | {v['kappa']} | "
+                        f"{nr.get('bilstm_accepted_bayts_pct', '-')}% |")
+            kinds.append((name, r.get("rejection_kinds_of_bilstm_accepted", {})))
     if rows:
         out += ["## Bayts on the requested meter: BiLSTM vs verifier", "",
-                "| poems | bayts | BiLSTM | verifier | kappa |", "|---|---:|---:|---:|---:|"] + rows + [""]
+                "Last column: share of the bayts the BiLSTM accepts that have a hemistich with no reading at all in the "
+                "requested meter (any form, any cost), so it does not depend on the margin rule.", "",
+                "| poems | bayts | BiLSTM | verifier (any form) | kappa | BiLSTM-accepted, no reading in the meter |",
+                "|---|---:|---:|---:|---:|---:|"] + rows + [""]
+        for name, k in kinds:
+            if k:
+                out += [f"Why the verifier rejects bayts the BiLSTM accepts ({name}, {k.get('bayts', 0):,} bayts; a bayt "
+                        "can have two reasons): " + "; ".join(f"{a} {b}%" for a, b in k.items() if a != "bayts"), ""]
     text = "\n".join(out)
     (d / "m1_report.md").write_text(text, encoding="utf-8")
     try:
