@@ -213,3 +213,16 @@ def test_arud_change_and_israf_are_flagged():
     assert not r.bayts[1].ok                       # outside the opening bayt a ḥadhdhāʾ ʿarūḍ cannot pair with a maqṭūʿ ḍarb
     kinds = {i["kind"] for i in r.rhyme["issues"]}
     assert "israf" in kinds                        # أَعْلَانِهْ (kasra) against شَفَّانَهْ (fatḥa)
+
+
+def test_margin_rival_must_fit_the_same_position():
+    """A sadr outside the opening bayt is not rejected because a pause reading of it would fit a ḍarb better
+    (found in the test split: shaer_test_002014, bayt 9)."""
+    from prosody.lexicon import Lexicon
+    lex = Lexicon.load(Path(__file__).resolve().parents[1] / "data" / "lexicon_train.json.gz")
+    v = Verifier(lex, ignore_diacritics=True)
+    sadr, ajuz = "رضي الحَبيب عَن الحَبيب فسله", "سل الضَمير تعلق الإِلهاما"
+    bv, sc, _ = v.bayt(sadr, ajuz, "kamil", "tam", first=False)
+    assert bv.ok, bv.reason
+    assert all(m.position == "sadr" for m in sc)
+    assert bv.sadr.best_any is None or bv.sadr.best_any.position == "sadr"

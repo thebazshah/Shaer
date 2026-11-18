@@ -95,9 +95,11 @@ def perturb(line: str, kind: str, rng: random.Random, vocab: list[str]) -> str |
     return out if out != line else None
 
 
-def hemistich_scores(text: str, meter: str, form: str, position: str) -> dict:
-    """Costs needed for every margin: target cost, best cost in any meter, best other-meter costs."""
-    cands, best_any, ms = V._hemistich(text, meter, form, (position,) if position == "ajuz" else ("sadr", "ajuz"))
+def hemistich_scores(text: str, meter: str, form: str, position: str, first: bool = False) -> dict:
+    """Costs needed for every margin: target cost, best cost in any meter, best other-meter costs. The positions are the
+    verifier's: a sadr may take a ḍarb form (taṣrīʿ) only in the opening bayt."""
+    positions = ("ajuz",) if position == "ajuz" else (("sadr", "ajuz") if first else ("sadr",))
+    cands, best_any, ms = V._hemistich(text, meter, form, positions)
     other = {}
     for m in ms:
         if m.meter != meter and (m.meter not in other or m.cost < other[m.meter]):
@@ -121,7 +123,7 @@ def _work(args) -> list[dict]:
         rec = {"meter": meter, "form": form, "hem": [], "neg": [], "poem": None}
         for i, line in enumerate(verses):
             pos = "sadr" if i % 2 == 0 else "ajuz"
-            s = hemistich_scores(line, meter, form, pos)
+            s = hemistich_scores(line, meter, form, pos, first=(i == 0))
             s["coverage"] = coverage(line)
             s["pos"] = pos
             rec["hem"].append(s)
@@ -129,7 +131,7 @@ def _work(args) -> list[dict]:
                 for kind in ("drop_letter", "drop_word", "add_word", "swap_word"):
                     p = perturb(line, kind, rng, vocab)
                     if p:
-                        ps = hemistich_scores(p, meter, form, pos)
+                        ps = hemistich_scores(p, meter, form, pos, first=(i == 0))
                         rec["neg"].append({"kind": kind, "orig": s, "pert": ps})
         lines = verses[: len(verses) // 2 * 2]
         if len(lines) >= 4:

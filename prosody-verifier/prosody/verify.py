@@ -120,10 +120,12 @@ class Verifier:
 
     # ---------------------------------------------------------------------------------------------- hemistich
     def _hemistich(self, text: str, meter: str, form: str, positions: tuple, ends: set | None = None) -> tuple:
-        ms = scan(self._text(text), strict=self.strict, lexicon=self.lexicon)
+        """Candidates in the requested meter, and the most plausible analysis in any meter **for the same position**:
+        a reading that only fits a ḍarb (e.g. a pause on the last word) is no rival for a sadr outside the opening bayt.
+        The returned match list is restricted to those positions as well."""
+        ms = [m for m in scan(self._text(text), strict=self.strict, lexicon=self.lexicon) if m.position in positions]
         best_any = ms[0] if ms else None
-        cands = [m for m in ms if m.meter == meter and m.form == form and m.position in positions
-                 and (ends is None or m.end in ends)]
+        cands = [m for m in ms if m.meter == meter and m.form == form and (ends is None or m.end in ends)]
         return cands, best_any, ms
 
     def _judge(self, text: str, cands: list, best_any: Match | None, meter: str, form: str, position: str) -> HemistichVerdict:
