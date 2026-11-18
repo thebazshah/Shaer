@@ -377,7 +377,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         live_eval_steps=int(env_or("SFT_LIVE_EVAL_STEPS", mode_overrides.get("live_eval_steps", training.get("eval_steps", defaults.get("live_eval_steps", 50))))),
         full_eval_steps=int(env_or("SFT_FULL_EVAL_STEPS", mode_overrides.get("full_eval_steps", training.get("eval_steps", defaults.get("full_eval_steps", 100))))),
         logging_steps=int(mode_overrides.get("logging_steps", training.get("logging_steps", defaults.get("logging_steps", 1)))),
-        save_total_limit=int(mode_overrides.get("save_total_limit", training.get("save_total_limit", defaults.get("save_total_limit", 6)))),
+        save_total_limit=int(env_or("SFT_SAVE_TOTAL_LIMIT", mode_overrides.get("save_total_limit", training.get("save_total_limit", defaults.get("save_total_limit", 6))))),
         remote_keep_last_checkpoints=int(defaults.get("remote_keep_last_checkpoints", 12)),
         bf16=str(env_or("SFT_BF16", training.get("bf16", defaults.get("bf16", "auto")))).lower(),
         fp16=str2bool(env_or("SFT_FP16", training.get("fp16", False))),

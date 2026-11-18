@@ -42,6 +42,9 @@ It is not a full end-to-end reproduction notebook for training.
 - `sc.start_training(cfg)` also writes a resume checkpoint every 10 minutes of training by default (`save_minutes=10`; about every
   32 steps on an L4, about every 60 on an A100), so a slow GPU does not run for hours without one. Same resume-only mechanism
   (`SFT_RESCUE_SAVE_MINUTES`); `save_minutes=None` turns it off.
+- `sc.start_training(cfg)` keeps only two checkpoints on Drive: the latest (to resume from) and the best (lowest eval loss), or one
+  when they are the same. It sets `SFT_SAVE_TOTAL_LIMIT=1`, which Hugging Face treats as "latest + best" with `load_best_model_at_end`
+  (the yaml's `save_total_limit: 3` stays the default for other runs).
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.

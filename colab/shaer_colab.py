@@ -570,7 +570,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     save_steps: write a resume checkpoint every this many optimiser steps. The default, 200, is the paper's schedule. A smaller value
     (for example 50) ADDS extra checkpoints in between, so an interruption loses fewer steps; evaluation, the probe and the choice of
     the best checkpoint stay on the 200-step schedule, so the results are not affected. Each checkpoint is about 1 GB written to
-    Drive (the newest 3 and the best one are kept) and costs some time to write.
+    Drive and costs some time to write. Only two are kept on Drive: the latest (to resume from) and the best (lowest eval loss so
+    far); when the latest is also the best, just one. The previous latest is deleted only after the new one is completely written.
     save_minutes: also write a resume checkpoint once this many minutes of training have passed since the last checkpoint (default
     10), independent of GPU speed: on an L4 at ~19 s/step that is about every 32 steps, on an A100 at ~10 s/step about every 60.
     Like save_steps it only adds resume checkpoints and does not change the results. None or 0 turns it off.
@@ -589,6 +590,9 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         return
     _warn_if_gpu_shared("training")
     env = cfg.env(SFT_RESUME_MODE="auto")        # resumes from the newest complete checkpoint of this RUN_NAME on Drive
+    # keep only the latest and the best checkpoint: with load_best_model_at_end, Hugging Face treats save_total_limit=1 as
+    # "latest + best" (it never deletes the best one, nor the latest, which is needed to resume)
+    env["SFT_SAVE_TOTAL_LIMIT"] = "1"
     if not gradient_checkpointing:
         env["SFT_GRADIENT_CHECKPOINTING"] = "0"  # faster, uses more memory (see the notebook text before using it on 40 GB)
     if int(save_steps) < 200:
