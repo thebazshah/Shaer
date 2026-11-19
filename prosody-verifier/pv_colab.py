@@ -306,6 +306,72 @@ def m1_report(pv: PVConfig) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------------------------- M3
+def m3_dir(pv: PVConfig) -> pathlib.Path:
+    d = pv.root / "m3"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def m3_systems(pv: PVConfig) -> dict[str, pathlib.Path]:
+    """What M3 re-scores: the human reference poems and the released Shaer poems (both prepared by M0), and every
+    complete baseline run on Drive (E1-E3, Yehia or ALLaM)."""
+    runs = baseline_runs(pv)
+    e0 = runs.pop("e0_released_shaer", None) or (pv.m0 / "sources" / "e0" / "scored.jsonl")
+    ref = pv.m0 / "reference" / "scored.jsonl"
+    if not (_lines(e0) and _lines(ref)):
+        raise RuntimeError("run M0 first (pv.run_m0(pvc)): it prepares and scores the reference and the released poems")
+    return {"reference": ref, "e0_released_shaer": e0, **runs}
+
+
+def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding"), controls: bool = True,
+               workers: int = 0) -> None:
+    """Re-score every system with the verifier (both reading modes), then the two controls built from the reference
+    poems. Every finished poem is written to Drive at once: re-running the cell resumes where it stopped. Records made
+    by another version of the verifier or lexicon are set aside (.stale), never mixed in. limit=N: the first N prompts
+    of each system only (a quick look); limit=0: all 3,481."""
+    _need_env(pv)
+    out = m3_dir(pv)
+    systems = m3_systems(pv)
+    print("systems:", ", ".join(systems))
+    t0 = sc._start("M3 strict re-scoring", "roughly 30-60 minutes per system and reading mode on a 2-core CPU runtime; "
+                   "resumable")
+    extra = ["--workers", str(workers)] if workers else []
+    for name, scored in systems.items():
+        pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", name, "--out-dir", out,
+                "--modes", ",".join(modes), "--limit", str(limit), *extra], label=f"M3 {name}")
+    if controls:
+        for kind in ("wrong_meter", "mixed_rhyme"):
+            src = out / "controls" / f"{kind}.jsonl"
+            if not _lines(src):
+                pv.run([HERE / "m3_rescore.py", "control", "--scored", systems["reference"], "--kind", kind, "--out", src],
+                       label=f"control {kind}")
+            pv.run([HERE / "m3_rescore.py", "score", "--scored", src, "--system", f"control_{kind}", "--out-dir", out,
+                    "--modes", "letters", "--limit", str(limit), *extra], label=f"M3 control {kind}")
+    sc._finish(t0, f"M3 re-scoring -> {out}")
+
+
+def m3_report(pv: PVConfig, reps: int = 1000) -> str:
+    """Summarise every re-scored system (Shaer's own metrics next to the strict ones, with bootstrap intervals,
+    margins, breakdowns, controls and integrity checks): m3/m3_summary.json and m3/m3_report.md on Drive."""
+    _need_env(pv)
+    out = m3_dir(pv)
+    pv.run([HERE / "m3_rescore.py", "summarize", "--dir", out, "--reps", str(reps)], label="M3 summary", quiet=True)
+    text = (out / "m3_report.md").read_text(encoding="utf-8")
+    summary = json.loads((out / "m3_summary.json").read_text(encoding="utf-8"))
+    bad = {k: v for k, v in summary["checks"].items()
+           if any(v.get(c) not in (0, 0.0, None) for c in ("line_count_mismatches", "misaligned_bilstm_bayts",
+                                                           "default_margin_recomputation_mismatches",
+                                                           "exact_count_vs_official_pp"))}
+    print("integrity checks:", "all 0" if not bad else f"FAILED for {', '.join(bad)} (see the last table)")
+    try:
+        from IPython.display import Markdown, display
+        display(Markdown(text))
+    except ImportError:
+        print(text)
+    return text
+
+
 def verify_poem(text: str, base_meter: str, form: str = "تام", requested_lines: int | None = None,
                 ignore_diacritics: bool = False) -> dict:
     """Verify one poem in this Python process (the verifier needs only the standard library) and print a readable report.

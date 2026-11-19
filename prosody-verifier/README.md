@@ -32,8 +32,9 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | `build_lexicon.py` | builds the pronunciation lexicon from the train split |
 | `validate_verifier.py` | validation on human poems (positives) and broken copies (negatives), across thresholds |
 | `compare_bilstm.py` | bayt-by-bayt agreement with the Shaer evaluation's BiLSTM classifier |
+| `m3_rescore.py` | M3: strict re-scoring of every baseline (score / control / summarize), resumable and version-pinned |
 | `tests/` | `python -m pytest prosody-verifier/tests -q` |
-| `validation/` | written reports: the rule-table cross-check and the M1 validation |
+| `validation/` | written reports: the rule-table cross-check, the M1 validation and the M3 validation |
 
 ## Milestones
 
@@ -42,7 +43,7 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | M0 | Headroom audit of baseline and human reference poems | done |
 | M1 | The verifier and its validation | done (see `validation/M1_report.md`) |
 | M2 | Expert-checked gold set; sign-off of the rule tables | needs a prosody expert |
-| M3 | Strict re-scoring of the baselines with the verifier | next |
+| M3 | Strict re-scoring of the baselines with the verifier | code and local validation in `validation/M3_report.md`; E1–E3 are scored on Colab |
 | M4 | Verifier-guided decoding vs best-of-N at equal compute | |
 
 ## Standing rules

@@ -624,8 +624,8 @@ def render(res: dict) -> str:
         a("|---|---|---:|---:|---:|---:|---:|---:|---:|")
         for n, m in rows:
             for b, v in m["by_length"].items():
-                a(f"| {n} | {b} | {v['poems']:,} | {v['strict_valid']} | {v['meter_ok']} | {v['rhyme_ok']} | {v['count_exact']} | "
-                  f"{v['bayt_ok']} | {v['bilstm_bayt_ok']} |")
+                a(f"| {n} | {b} | {v['poems']:,} | " + " | ".join("–" if v[k] is None else str(v[k]) for k in (
+                    "strict_valid", "meter_ok", "rhyme_ok", "count_exact", "bayt_ok", "bilstm_bayt_ok")) + " |")
         a("")
         a("## Bayts on meter by position in the poem (letters)")
         a("")
@@ -652,7 +652,8 @@ def render(res: dict) -> str:
             cells = []
             for _, m in rows:
                 v = m["by_meter"].get(mk)
-                cells.append(f"{v['strict_valid']} / {v['bayt_ok']} / {v['bilstm_bayt_ok']} ({v['poems']})" if v else "–")
+                cells.append(" / ".join("–" if v[k] is None else str(v[k]) for k in ("strict_valid", "bayt_ok", "bilstm_bayt_ok"))
+                             + f" ({v['poems']})" if v else "–")
             a(f"| {mk} | " + " | ".join(cells) + " |")
         a("")
         pk = [(n, m) for n, m in rows if "pass_at_k" in m]
