@@ -522,8 +522,10 @@ def summarize(m3_dir: Path, reps: int = 1000, seed: int = 7, reference: str = "r
                             continue
                         m2["official_structural"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in off.items()}
                         # M3's own exact-length rate must be the repository's exact count accuracy on the same poems
-                        m2["checks"]["exact_count_vs_official_pp"] = round(
-                            m2[f"margin_{DEFAULT_MARGIN}"]["count_exact"][0] - off["exact_count_accuracy_pct"], 6)
+                        # (unrounded on both sides: the reported point estimates are rounded to 0.01)
+                        pp2 = per_poem_all[(name, mode2, DEFAULT_MARGIN)]
+                        own = 100.0 * sum(v["count_exact"] for v in pp2.values()) / len(pp2)
+                        m2["checks"]["exact_count_vs_official_pp"] = round(own - off["exact_count_accuracy_pct"], 9)
                 break
     # paired differences against the reference poems (same prompts)
     if reference in res["systems"]:

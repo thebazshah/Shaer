@@ -7,6 +7,7 @@ Classical terms (al-Khalīl):
   khurūj    the long vowel after a waṣl hāʾ (ـهو، ـها، ـهي)
   ridf      a long vowel (ا، و، ي, or a diphthong) right before the rawī; alif alternating with wāw/yāʾ is a flaw
             (sinād al-ridf), wāw with yāʾ is allowed; a ridf in some bayts and not others is a flaw too
+            (wāw/yāʾ: decided from the written word; see Unit.ridf)
   taʾsīs    an alif with exactly one letter (the dakhīl) between it and the rawī; all or none (sinād al-taʾsīs)
   muṭlaqa / muqayyada   the rawī is voweled / has a sukūn; mixing them is a flaw
   īṭāʾ      the same rhyme word repeated (flagged within 7 bayts)
@@ -20,16 +21,20 @@ alif, while دارِها / جارِها rhyme on the rāʾ).
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
 from . import arudi
 
 ALEF, WAW, YAA, HAA, TA_MARBUTA, ALEF_MAQSURA = "ا", "و", "ي", "ه", "ة", "ى"
+ALEF_MADDA, SHADDA, SUKUN, KASRA, DAMMA = "آ", "ّ", "ْ", "ِ", "ُ"
 MADD = {ALEF: "a", WAW: "u", YAA: "i", ALEF_MAQSURA: "a"}
 VOWEL_OF_MARK = {"َ": "a", "ُ": "u", "ِ": "i", "ً": "a", "ٌ": "u", "ٍ": "i"}
 HAMZAS = set("ءأإؤئآ")
 ITA_WINDOW = 7
+ALLAH_END = re.compile("لله$")
+UNWRITTEN_ALIF = re.compile("(?:ذلك|اولئك|لكن)$")     # ḏālika, ulāʾika, lākin: an alif two letters before the rawī
 CANDIDATE_WEIGHTS = (1.0, 0.6, 0.35)
 
 
@@ -58,6 +63,8 @@ class Unit:
     candidates: list = field(default_factory=list)   # [(rawi index, rule)]
     rawi_i: int | None = None
     rule: str = ""
+    _written: dict | None = field(default=None, repr=False)
+    choice: int = 0                     # which of ridf_options() the poem-level analysis settled on
 
     def _at(self, i):
         return self.letters[i] if 0 <= i < len(self.letters) else None
@@ -100,30 +107,113 @@ class Unit:
         k = self._at(self.rawi_i + 2)
         return bool(k and k[0] in MADD)
 
+    def written_marks(self, i: int) -> str | None:
+        """The marks WRITTEN on the letter at trace index i (None when it cannot be aligned). The trace comes from the
+        scanner's reading, which drops letters (the article's alif, alif waṣla) and, in letters mode, every mark; it keeps
+        the order of the written letters, so the two are aligned from the end of the word."""
+        if self._written is None:
+            self._written = _align_written(self.word, self.letters)
+        return self._written.get(i, (None, None))[1]
+
+    def written_index(self, i: int) -> int | None:
+        """Position in the written word of the letter at trace index i (None when it cannot be aligned)."""
+        if self._written is None:
+            self._written = _align_written(self.word, self.letters)
+        return self._written.get(i, (None, None))[0]
+
+    def ridf_options(self) -> list:
+        """The (ridf, taʾsīs) readings the written word allows, the likeliest first; ridf is 'alif', 'wy' (wāw or yāʾ,
+        long vowel or diphthong) or ''.
+
+        The scanner's reading only locates the rawī. The letters before it are taken from the WRITTEN word: in letters
+        mode the reading of the last word is chosen from bare letters, and at the end of a line the meter rarely decides
+        it, so the reading may drop a written alif (كلالها) or make a long vowel a consonant (عظيم / العميم read
+        differently in one poem).
+
+        An alif right before the rawī (ا، ى، or آ) is a ridf, and so is the unwritten alif of الله (بالله). A wāw or yāʾ there is a consonant when a vowel or shadda is
+        written on it (حَوَر، الأَوَلِ، يَتَرَيَّعُ), when it is the word's first letter (the wa- of ولي), when a sākin
+        alif precedes it (مداويا: it is then the dakhīl of a taʾsīs), when the letter before it has a sukūn (أَحْوَر), or
+        when the rawī is itself a long vowel (الهوى). It is a ridf when it has a sukūn, or when the letter before it has the
+        matching vowel (ḍamma before wāw, kasra before yāʾ: مَسْرُور، حَبِيب). Otherwise it is open, ridf first (most such
+        words have one): it votes for a ridf, but takes the poem's majority reading and is never flagged itself."""
+        if self.rawi_i is None:
+            return [("", False)]
+        units = arudi._units(self.word)
+        k = self.written_index(self.rawi_i)
+        if k is None or k < 1:
+            return [("", False)]
+        pl, pm = units[k - 1]
+        ql, qm = units[k - 2] if k >= 2 else ("", "")
+        # a taʾsīs alif is pronounced: an alif waṣla or the article's alif (باسمه، والتي) is dropped by every reading, so
+        # a written ا counts only where the reading has it; ذلك، أولئك، لكن have one that is not written
+        read = {w for w, _ in (self._written or {}).values()}
+        alif_q = (ql == ALEF_MADDA or (ql == ALEF and k - 2 in read)
+                  or bool(UNWRITTEN_ALIF.search("".join(arudi._fold(l) for l, _ in units[:k + 1]))))
+        if pl in (ALEF, ALEF_MAQSURA, ALEF_MADDA):
+            return [("alif", False)]
+        if units[k][0] == HAA and pl == ql == "ل" and ALLAH_END.search(arudi.strip_marks(self.word)):
+            return [("alif", False)]           # الله، لله، بالله: the alif of -lāh is not written
+        if pl in (WAW, YAA):
+            r = self.letters[self.rawi_i]
+            own = {YAA: KASRA, WAW: DAMMA}[pl]
+            voweled = SHADDA in pm or any(m in VOWEL_OF_MARK and m != own for m in pm)
+            if voweled or k - 1 == 0 or alif_q or SUKUN in qm or (r[0] in MADD and r[2] == "0"):
+                return [("", alif_q)]
+            if SUKUN in pm or own in qm:
+                return [("wy", False)]
+            return [("wy", False), ("", False)]
+        return [("", alif_q)]
+
     @property
     def ridf(self) -> str:
-        """'alif', 'wy' (wāw or yāʾ, long vowel or diphthong) or ''."""
-        if self.rawi_i is None:
-            return ""
-        p = self._at(self.rawi_i - 1)
-        if not p or p[2] != "0":
-            return ""
-        if p[0] in (ALEF, ALEF_MAQSURA):
-            return "alif"
-        if p[0] in (WAW, YAA):
-            return "wy"
-        return ""
+        return self.ridf_options()[self.choice][0]
 
     @property
     def tasis(self) -> bool:
-        if self.rawi_i is None or self.ridf:
-            return False
-        a = self._at(self.rawi_i - 2)
-        return bool(a and a[0] == ALEF and a[2] == "0")
+        return self.ridf_options()[self.choice][1]
 
     def summary(self) -> dict:
         return {"word": self.word, "rawi": self.rawi, "majra": self.majra, "mutlaqa": self.mutlaqa, "wasl": self.wasl,
                 "khuruj": self.khuruj, "ridf": self.ridf, "tasis": self.tasis, "rule": self.rule}
+
+
+def _align_written(word: str, letters: list) -> dict:
+    """{trace index: (position in the written word, marks written on that letter)}.
+
+    The reading's trace can drop written letters (the article's alif, alif waṣla, an alif a bare-letter reading lost) and
+    add some (the end-of-line lengthening, marked virtual, or a long vowel a reading inserted), so the two are aligned
+    as a longest common subsequence of letters, preferring matches nearest the end of the word (where the rhyme is)."""
+    units = arudi._units(word)
+    tr = [(j, l) for j, (l, m, b) in enumerate(letters) if m != "virtual"]
+    n, m = len(tr), len(units)
+    # best[i][k]: LCS length of tr[i:] and units[k:]
+    best = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for k in range(m - 1, -1, -1):
+            same = fold(tr[i][1]) == fold(units[k][0])
+            best[i][k] = max(best[i + 1][k], best[i][k + 1], best[i + 1][k + 1] + 1 if same else 0)
+    # read the alignment back from the end so that ties go to matches nearest the end of the word
+    end = [[0] * (m + 1) for _ in range(n + 1)]   # LCS of tr[:i] and units[:k]
+    for i in range(1, n + 1):
+        for k in range(1, m + 1):
+            same = fold(tr[i - 1][1]) == fold(units[k - 1][0])
+            end[i][k] = max(end[i - 1][k], end[i][k - 1], end[i - 1][k - 1] + 1 if same else 0)
+    out: dict = {}
+    i, k = n, m
+    while i > 0 and k > 0:
+        if fold(tr[i - 1][1]) == fold(units[k - 1][0]) and end[i][k] == end[i - 1][k - 1] + 1:
+            out[tr[i - 1][0]] = (k - 1, units[k - 1][1])
+            i, k = i - 1, k - 1
+        elif end[i - 1][k] >= end[i][k - 1]:
+            i -= 1
+        else:
+            k -= 1
+    return out
+
+
+def _written_voweled(marks: str | None) -> bool:
+    """A vowel or shadda is written on the letter: it is mutaḥarrik (the second half of a geminate is)."""
+    return bool(marks) and (SHADDA in marks or any(m in VOWEL_OF_MARK for m in marks))
 
 
 def _letters_with_end(word: str, reading, line_end: bool = True) -> list:
@@ -146,8 +236,9 @@ def _letters_with_end(word: str, reading, line_end: bool = True) -> list:
     return trace
 
 
-def _candidates(letters: list) -> list:
-    """Possible rawī positions for one bayt, most classical first."""
+def _candidates(letters: list, written: dict | None = None) -> list:
+    """Possible rawī positions for one bayt, most classical first. `written` ({trace index: written marks}) lets a vowel
+    or shadda written before a hāʾ count even when the reading was taken from the bare letters (سَنِيَّه: rawī ي)."""
     n = len(letters)
     if n == 0:
         return []
@@ -156,10 +247,17 @@ def _candidates(letters: list) -> list:
     i = n - 1
     def haa_is_wasl(j: int) -> bool:
         """A hāʾ (pronoun or tāʾ marbūṭa) after a mutaḥarrik is a waṣl; after a sākin it is the rawī (مِنْهُ)."""
-        return j >= 1 and letters[j - 1][2].endswith("1")
+        return j >= 1 and (letters[j - 1][2].endswith("1") or _written_voweled((written or {}).get(j - 1, (0, None))[1]))
 
     if last_l in MADD and last_b == "0" and n >= 2:
         j = n - 2
+        # a bare-letter reading can make the WRITTEN final long vowel a voweled consonant and lengthen that
+        # (وتقصيري read …ri-yi + ī): a written unvoweled و/ي/ا ending the word after the rhyme consonant is the waṣl
+        wj = (written or {}).get(j)
+        if (last_m == "virtual" and n >= 3 and letters[j][0] in (WAW, YAA, ALEF) and wj is not None
+                and wj[0] == max(v[0] for v in written.values()) and not _written_voweled(wj[1])
+                and letters[j - 1][0] not in MADD):
+            out.append((n - 3, "written madd is waṣl"))
         haa = letters[j][0] in (HAA, TA_MARBUTA) and n >= 3
         if haa and haa_is_wasl(j):
             out.append((n - 3, "hāʾ waṣl + khurūj"))   # دارِها: rawī ر, waṣl هـ, khurūj ا
@@ -225,7 +323,7 @@ def analyse(ajuz_lines: list[str], last_readings: list, sadr_first: str | None =
             rs = arudi.word_readings(w, use_lexicon=False)
             reading = min(rs, key=lambda r: r.cost) if rs else None
         u = Unit(w, _letters_with_end(w, reading, line_end=not (use and has)))
-        u.candidates = _candidates(u.letters)
+        u.candidates = _candidates(u.letters, _align_written(u.word, u.letters))
         units.append(u)
 
     # poem-level choice of the rawī
@@ -267,14 +365,20 @@ def analyse(ajuz_lines: list[str], last_readings: list, sadr_first: str | None =
                 bad = [i for i, u in enumerate(units) if u and u.majra in ("a", "u", "i") and u.majra != mv]
                 kind = "israf" if mv == "a" or any(units[i].majra == "a" for i in bad) else "iqwa"
                 flag(kind, bad, f"rawī vowel {mv!r} expected")
-    rf = Counter(u.ridf for u in present)
+    # ridf: the majority of the likeliest readings sets the poem's ridf; each bayt takes a reading that agrees with it
+    # when its written form allows one, and is flagged only when none does (wāw alternating with yāʾ is allowed)
+    rf = Counter(u.ridf_options()[0][0] for u in present)
     if rf:
         major = rf.most_common(1)[0][0]
-        if major:
-            flag("sinad_ridf", [i for i, u in enumerate(units) if u and u.rawi_i is not None and
-                                (not u.ridf or (u.ridf == "alif") != (major == "alif"))], f"ridf {major!r} expected")
-        else:
-            flag("sinad_ridf", [i for i, u in enumerate(units) if u and u.ridf], "no ridf expected")
+        bad = []
+        for i, u in enumerate(units):
+            if not (u and u.rawi_i is not None):
+                continue
+            ok = [k for k, (r, _) in enumerate(u.ridf_options()) if r == major]
+            u.choice = ok[0] if ok else 0
+            if not ok:
+                bad.append(i)
+        flag("sinad_ridf", bad, f"ridf {major!r} expected" if major else "no ridf expected")
     ts = Counter(u.tasis for u in present)
     if ts:
         major = ts.most_common(1)[0][0]
@@ -298,7 +402,7 @@ def analyse(ajuz_lines: list[str], last_readings: list, sadr_first: str | None =
         sw = arudi.tokenize(sadr_first)
         if sw:
             su = Unit(sw[-1], _letters_with_end(sw[-1], sadr_first_reading))
-            su.candidates = _candidates(su.letters)
+            su.candidates = _candidates(su.letters, _align_written(su.word, su.letters))
             tasri = any(fold(su.letters[i][0]) == rawi for i, _ in su.candidates)
 
     return {"rawi": rawi, "refrain": use, "refrain_detected": detected, "tasri": tasri,

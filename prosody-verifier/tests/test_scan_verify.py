@@ -119,12 +119,43 @@ def test_nearest_points_at_the_broken_foot():
     (["مِنْهُ", "عَنْهُ", "فيهِ"], "ه", "iqwa"),               # hāʾ after a sākin is the rawī; ḍamma vs kasra = iqwāʾ
     (["دارُ", "نارُ", "نورُ"], "ر", "sinad_ridf"),             # ridf alif alternating with wāw
     (["الكواكِبُ", "المراكِبُ", "الحبائِبُ", "القلوبُ"], "ب", "sinad_tasis"),
+    # M3 audit of human poems: ridf and taʾsīs read from the written word
+    (["المآقي", "باقِ", "احتراقِ"], "ق", None),                # the ridf alif written inside آ
+    (["الحذرِ", "الغِيَرِ", "النظرِ", "القمرِ"], "ر", None),    # a voweled yāʾ is no ridf
+    (["يَتَرَيَّعُ", "يجمَعُ", "المطمَعُ"], "ع", None),          # nor a geminated one
+    (["الأَوَلِ", "الأملِ", "العملِ"], "ل", None),
+    (["ولي", "فقلي"], "ل", None),                               # the wa- of ولي is never sākin
+    (["مداويا", "راجيا", "واقيا"], "ي", None),                  # alif + wāw + rawī: the wāw is the dakhīl of a taʾsīs
+    (["سَنِيَّه", "بَهِيَّه", "عَلِيَّه"], "ي", None),          # hāʾ after a geminate yāʾ is the waṣl
+    (["الزاهي", "ناهي", "باللهِ"], "ه", None),                 # the unwritten alif of الله is a ridf
+    (["كَذَلِكا", "مُشارِكا", "المَسالِكا"], "ك", None),        # ... and that of ذلك a taʾsīs alif
+    (["عظيم", "العميم", "نديم"], "م", None),
+    (["قلب", "حبيب", "قريب", "لهيب"], "ب", "sinad_ridf"),      # an open yāʾ votes for a ridf: قلب is flagged
+    (["باب", "حبيب", "قريب", "لهيب"], "ب", "sinad_ridf"),      # alif against yāʾ
 ])
 def test_rhyme_cases(ends, rawi, issue):
     r = analyse(ends, [None] * len(ends))
     assert r["rawi"] == rawi
     kinds = {i["kind"] for i in r["issues"]}
     assert (issue in kinds) if issue else not kinds
+
+
+def test_rhyme_letters_come_from_the_written_word_not_the_reading():
+    """In letters mode the scanner reads bare letters; a reading that drops a written alif or turns the written final
+    yāʾ into a voweled consonant must not change the rhyme (cases from the M3 audit)."""
+    from prosody import arudi, qafiya
+    def bogus(word, bits_of):
+        # a reading of the bare word whose trace drops / mis-reads letters as bits_of says
+        r = min(arudi.word_readings(arudi.strip_marks(word), use_lexicon=False), key=lambda r: r.cost)
+        return arudi.WordReading(r.bits, r.final, r.wasl, r.cost, r.note, tuple(bits_of))
+    kalal = bogus("كَلالُها", [("ك", "", "1"), ("ل", "", "1"), ("ل", "", "0"), ("ه", "", "1"), ("ا", "", "0")])
+    r = analyse(["كَلالُها", "ظِلالُها", "غَزالُها"], [kalal, None, None])
+    assert r["rawi"] == "ل" and not r["issues"]
+    taq = bogus("وتقصيري", [("و", "", "1"), ("ت", "", "1"), ("ق", "", "1"), ("ص", "", "0"), ("ي", "", "1"),
+                            ("ر", "", "1"), ("ي", "", "1")])
+    taq = arudi.WordReading(taq.bits, "1", taq.wasl, taq.cost, taq.note, taq.trace)
+    r = analyse(["وتقصيري", "مأمور", "مهجور", "مستور"], [taq, None, None, None])
+    assert r["rawi"] == "ر" and not r["issues"]
 
 
 def test_refrain_is_detected_and_rhyme_read_before_it():
