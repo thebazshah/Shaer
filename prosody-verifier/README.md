@@ -43,7 +43,7 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | M0 | Headroom audit of baseline and human reference poems | done |
 | M1 | The verifier and its validation | done (see `validation/M1_report.md`) |
 | M2 | Expert-checked gold set; sign-off of the rule tables | needs a prosody expert |
-| M3 | Strict re-scoring of the baselines with the verifier | code and local validation in `validation/M3_report.md`; E1–E3 are scored on Colab |
+| M3 | Strict re-scoring of the baselines with the verifier | done for the reference and E0 (`validation/M3_report.md`); E1–E3 are scored on Colab with the same code |
 | M4 | Verifier-guided decoding vs best-of-N at equal compute | |
 
 ## Standing rules

@@ -7,6 +7,7 @@ Numbers in this report were produced by the code at commit `e17d0f4` on branch `
 * On **human poems of the held-out test split** (3,481 poems, 38,412 hemistichs), **87.1%** of hemistichs are accepted in their labelled meter and form (91.12% in their labelled meter, any form), and the verifier's most plausible analysis is the labelled meter for **86.09%**. Corpus labels and texts are noisy, so these are lower bounds.
 * Systematically **broken copies** of accepted hemistichs are rejected **71.89%** of the time (a word added 99.59%, a word swapped for one of another length 80.51%, a word dropped 75.13%, one letter dropped 24.37%; many one-letter drops are still metrical, see below).
 * **Rhyme**: 85.63% of human test poems pass the full qāfiya check, and **100.0%** of poems with one planted rhyme break are flagged.
+  *Erratum (M3):* 85.63% was produced by the rhyme code at `e17d0f4`. M3 found two errors in it, both fixed (`1c707ba`, `0e8c3d2`; see `M3_report.md` section 6). With the fixed code, **91.79%** of these poems pass the rhyme check, planted breaks are still flagged at 100.0%, and every meter number in this report is unchanged.
 * **Against the BiLSTM** used by the Shaer evaluation: the BiLSTM accepts 95.37% of the released Shaer bayts and 97.3% of the human bayts on the same prompts. Judging the letters only (written vowels ignored), the verifier accepts 55.74% and 86.2%. The margin-independent measure is sharper: among the bayts the BiLSTM accepts, **24.85%** of Shaer's have a hemistich with **no reading at all** in the requested meter (any form, any cost), against **4.07%** of the human ones. The BiLSTM metric hides a large share of unmetrical lines, and the manual check below supports these rejections.
 * The main weakness is in the other direction: with bare text, the **margin rule** sometimes rejects a metrical line because a more common reading of one of its words scans in another meter. This accounts for most rejections of human poems in the manual check. A prosody expert still has to sign off the rule tables and a gold set (M2).
 
@@ -71,7 +72,7 @@ Without the prior and the margin (last row), bare text lets a hemistich be read 
 | ... drop word | 75.13% |
 | ... drop letter | 24.37% |
 | poems with at least 4 hemistichs: every bayt accepted | 53.36% of 3,263 |
-| ... rhyme check passes | 85.63% |
+| ... rhyme check passes | 85.63% (91.79% after the M3 fixes, see the erratum above) |
 | planted rhyme breaks flagged | 100.0% |
 
 Every-bayt acceptance compounds the per-hemistich rate over 10 to 20 hemistichs, so it is far lower than the hemistich rate; with label and typing noise in the corpus it is a pessimistic number.
