@@ -238,15 +238,16 @@ class _Bars:
             return None
         desc = (m["desc"] or "progress").strip()[-30:] or "progress"
         pct = int(m["pct"])
-        last_pct, last_t = self.state.get(desc, (-1, 0.0))
+        last_pct, last_t, last_n = self.state.get(desc, (-1, 0.0, None))
         if pct < last_pct:
             last_pct = -1                       # a new bar that reuses the description
         now = time.time()
         if pct == 100 and last_pct == 100:
             return ""
-        if not (last_pct < 0 or pct == 100 or pct >= last_pct + 10 or (pct > last_pct and now - last_t >= 30)):
+        # also when the count moved and 30 s passed: on long bars 1 % can take many minutes (1 % of 4,236 steps on an L4 is ~13 min)
+        if not (last_pct < 0 or pct == 100 or pct >= last_pct + 10 or (m["n"] != last_n and now - last_t >= 30)):
             return ""                           # swallowed
-        self.state[desc] = (pct, now)
+        self.state[desc] = (pct, now, m["n"])
         eta = f"  ETA {m['eta'].strip()}" if m["eta"] and m["eta"].strip() not in ("?", "") else ""
         return f"  {desc:<30} [{_bar(pct / 100)}] {pct:3d}%  {m['n'].strip()}/{m['total'].strip()}  elapsed {m['el'].strip()}{eta}"
 
@@ -257,7 +258,8 @@ class StepStalled(RuntimeError):
 
 
 def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = False, check: bool = True, tail: int | None = None,
-        drop: tuple = ("warn",), stall_after: int | None = None, heartbeat: int = 20, progress=None) -> int:
+        drop: tuple = ("warn",), stall_after: int | None = None, heartbeat: int = 20, progress=None, log_path=None,
+        on_start=None, stop_on_interrupt: bool = False) -> int:
     """Run a command (no shell), stream its output into the cell, and watch it.
 
     Shown as it is produced: normal lines, plus tqdm bars as throttled bar lines. Hidden: lines containing a word of `drop`.
@@ -265,18 +267,53 @@ def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = Fal
     given, returns (done, total) and is shown as a bar at each heartbeat (used for steps that print nothing but write a file).
     If the command makes no progress for `stall_after` seconds AND looks idle (GPU < 10 % and almost no CPU), it is stopped and
     StepStalled is raised. Raises RuntimeError on a non-zero exit when `check`.
+    `log_path`: also append every output line, unfiltered, to this file. `on_start(proc)`: called right after the process starts.
+    `stop_on_interrupt`: when the cell is stopped (KeyboardInterrupt), stop the command too (SIGTERM, then SIGKILL) instead of
+    leaving it running.
     """
     proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            text=True, bufsize=1, start_new_session=stop_on_interrupt)
+    if on_start:
+        on_start(proc)
     lines: queue.Queue = queue.Queue()
+    log_handle = open(log_path, "a", encoding="utf-8", errors="replace") if log_path else None
 
     def pump() -> None:
         assert proc.stdout is not None
         for raw in proc.stdout:                  # text mode: \r and \n both end a line, so progress arrives as it happens
+            if log_handle:
+                log_handle.write(raw)
+                log_handle.flush()
             lines.put(raw)
         lines.put(None)
 
     threading.Thread(target=pump, daemon=True).start()
+    try:
+        return _watch_process(proc, lines, cmd=cmd, label=label, quiet=quiet, check=check, tail=tail, drop=drop,
+                              stall_after=stall_after, heartbeat=heartbeat, progress=progress)
+    except KeyboardInterrupt:
+        if stop_on_interrupt and proc.poll() is None:
+            print(f"\n■ stopping {label} ...", flush=True)
+            _stop_process_group(proc)
+        raise
+    finally:
+        if log_handle:
+            log_handle.close()
+
+
+def _stop_process_group(proc: subprocess.Popen, grace: int = 30) -> None:
+    """SIGTERM the process and its children (it runs in its own session), SIGKILL whatever is left after `grace` seconds."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.wait()
+    except ProcessLookupError:
+        pass
+
+
+def _watch_process(proc, lines, *, cmd, label, quiet, check, tail, drop, stall_after, heartbeat, progress) -> int:
     bars, shown = _Bars(), (collections.deque(maxlen=tail) if tail else None)
     start = last_activity = time.time()
     last_cpu, last_tick, last_progress = _cpu_seconds(proc.pid), start, None
@@ -306,11 +343,14 @@ def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = Fal
                 if busy:
                     print(f"    (no output for {_fmt(idle_for)}, but the process is busy, so it is not treated as stuck)", flush=True)
                     continue
-                proc.terminate()
-                try:
-                    proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+                if os.getpgid(proc.pid) != os.getpgid(0):
+                    _stop_process_group(proc, grace=15)
+                else:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
                 raise StepStalled(f"{label} was silent and idle for {_fmt(idle_for)} and looks stuck (Colab sometimes hangs). "
                                   "I stopped it. Run this cell again: it resumes where it left off "
                                   "(generation continues from the file on Drive, training from the last checkpoint).")
@@ -564,8 +604,16 @@ def _training_pid(cfg: Config) -> int | None:
 
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
-                   save_minutes: float | None = 10) -> None:
-    """Start the full training run in the background; it logs to Drive and resumes from the newest complete checkpoint.
+                   save_minutes: float | None = 10, background: bool = False, auto_restart: bool = True,
+                   max_restarts: int = 3) -> None:
+    """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
+
+    The output (step bar with ETA, loss lines, evaluation) streams into the cell and is also appended to the log on Drive. While the
+    run prints nothing (model loading, data packing, a checkpoint being written) a heartbeat line every 20 s shows that it is alive
+    (elapsed, silence, GPU and CPU use). Stopping the cell stops training cleanly; checkpoints are kept and running this again
+    resumes from the newest complete one. If the run is silent AND idle (GPU and CPU) for `cfg.stall_minutes`, it is stopped and,
+    with `auto_restart`, restarted from the last checkpoint (up to `max_restarts` times).
+    background=True: the old behaviour, a detached process followed with sc.watch_training(cfg).
 
     save_steps: write a resume checkpoint every this many optimiser steps. The default, 200, is the paper's schedule. A smaller value
     (for example 50) ADDS extra checkpoints in between, so an interruption loses fewer steps; evaluation, the probe and the choice of
@@ -582,7 +630,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     if save_minutes is not None and float(save_minutes) < 0:
         raise ValueError("save_minutes must be positive (or None / 0 to turn the time-based checkpoints off)")
     if _training_pid(cfg):
-        print("training is already running: use sc.watch_training(cfg) to follow it")
+        print("training is already running (pid %s), e.g. a background run started earlier. Follow it with sc.watch_training(cfg), "
+              "or stop it with sc.stop_training(cfg) and run this cell again to train here in the foreground." % _training_pid(cfg))
         return
     if (cfg.run_dir / "run_summary.json").exists():
         print(f"run '{cfg.run_name}' already finished (run_summary.json exists): go to the generation step. "
@@ -602,14 +651,46 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         env["SFT_RESCUE_SAVE_MINUTES"] = str(float(save_minutes))
         print(f"  extra resume checkpoint every {float(save_minutes):g} minutes of training (plus the regular one every 200 steps)")
     log = cfg.logs / f"train_{cfg.run_name}.log"
+    cmd = [cfg.py, "-u", "train_sft.py", "--mode", "train", "--run_name", cfg.run_name]
+    if not background:
+        _train_foreground(cfg, cmd, env, log, auto_restart, max_restarts)
+        return
     with open(log, "ab") as handle:
-        proc = subprocess.Popen([cfg.py, "-u", "train_sft.py", "--mode", "train", "--run_name", cfg.run_name],
-                                cwd=pathlib.Path(cfg.repo_dir, "sft"), env=env, stdout=handle, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen(cmd, cwd=pathlib.Path(cfg.repo_dir, "sft"), env=env, stdout=handle, stderr=subprocess.STDOUT,
                                 start_new_session=True)      # survives the notebook cell, and a closed browser tab
     _pid_file(cfg).write_text(str(proc.pid))
     resumed = sorted(p.name for p in cfg.run_dir.glob("checkpoint-*")) if cfg.run_dir.exists() else []
     print(f"▶ training started (pid {proc.pid})" + (f", resuming from the newest complete of {resumed}" if resumed else ""))
     print(f"  log: {log}\n  follow it live with: sc.watch_training(cfg)")
+
+
+def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto_restart: bool, max_restarts: int) -> None:
+    """start_training's default: run train_sft.py in this cell, stream its output, restart it when it hangs."""
+    t0 = _start(f"training run '{cfg.run_name}' in this cell",
+                "startup (model load, tokenising, packing) takes several minutes, then the step bar appears")
+    restarts = 0
+    try:
+        while True:
+            resumed = sorted(p.name for p in cfg.run_dir.glob("checkpoint-*")) if cfg.run_dir.exists() else []
+            print("  resuming from the newest complete of " + str(resumed) if resumed else "  starting from step 0 (no checkpoint yet)",
+                  flush=True)
+            try:
+                run(cmd, label="training", cwd=pathlib.Path(cfg.repo_dir, "sft"), env=env, stall_after=cfg.stall_seconds,
+                    log_path=log, on_start=lambda proc: _pid_file(cfg).write_text(str(proc.pid)), stop_on_interrupt=True)
+                break
+            except StepStalled as exc:
+                if not auto_restart or restarts >= max_restarts:
+                    raise
+                restarts += 1
+                print(f"⚠ {exc}\n  restarting from the last checkpoint (restart {restarts}/{max_restarts}) ...", flush=True)
+    except KeyboardInterrupt:
+        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
+        return
+    finally:
+        _pid_file(cfg).unlink(missing_ok=True)
+    print("✔ training finished: run the generation step (7c)" if (cfg.run_dir / "run_summary.json").exists()
+          else "training process exited", flush=True)
+    _finish(t0, "training")
 
 
 def stop_training(cfg: Config) -> None:

@@ -2235,18 +2235,37 @@ def run_training() -> None:
     )
     trainer_holder["trainer"] = trainer
 
-    logger.info("Running initial eval before training...")
-    initial_eval = trainer.evaluate(metric_key_prefix="eval")
-    metrics_store.write(
-        {
-            "timestamp_utc": utc_now_iso(),
-            "mode": "eval",
-            "global_step": 0,
-            **{k: float(v) if isinstance(v, (int, float)) else v for k, v in initial_eval.items()},
-        }
-    )
-    initial_eval_aux = dict(meter_aux_eval_cb.latest_summary) if cfg.enable_meter_aux else {}
-    initial_probe = probe_runner.run(model, 0)
+    # The step-0 evaluation and probe describe the untrained adapter; they were done when the run first started and are in
+    # metrics.jsonl / probe_metrics.jsonl. Repeating them on every resume costs minutes per restart and changes nothing.
+    previous_initial_eval = None
+    if resume_path:
+        metrics_path = cfg.output_dir / "metrics.jsonl"
+        if metrics_path.exists():
+            for raw_line in metrics_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(raw_line)
+                except ValueError:
+                    continue
+                if row.get("mode") == "eval" and int(row.get("global_step", -1)) == 0 and "eval_loss" in row:
+                    previous_initial_eval = {k: v for k, v in row.items() if k.startswith("eval_")}
+                    break
+    if previous_initial_eval is not None:
+        logger.info("Resuming: skipping the initial (step-0) eval and probe, already recorded in metrics.jsonl (eval_loss=%s)",
+                    previous_initial_eval.get("eval_loss"))
+        initial_eval, initial_eval_aux, initial_probe = previous_initial_eval, {}, {"skipped": "resumed run; see probe_metrics.jsonl"}
+    else:
+        logger.info("Running initial eval before training...")
+        initial_eval = trainer.evaluate(metric_key_prefix="eval")
+        metrics_store.write(
+            {
+                "timestamp_utc": utc_now_iso(),
+                "mode": "eval",
+                "global_step": 0,
+                **{k: float(v) if isinstance(v, (int, float)) else v for k, v in initial_eval.items()},
+            }
+        )
+        initial_eval_aux = dict(meter_aux_eval_cb.latest_summary) if cfg.enable_meter_aux else {}
+        initial_probe = probe_runner.run(model, 0)
 
     logger.info("Starting SFT training...")
     original_torch_load = torch.load

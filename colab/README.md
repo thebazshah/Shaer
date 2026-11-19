@@ -29,8 +29,10 @@ It is not a full end-to-end reproduction notebook for training.
 - **No blind waiting.** Every long step shows progress bars (downloads, model loading, tokenising, generation, scoring, training),
   prints a heartbeat every ~20 s (time running, time silent, GPU use), and stops a step that is both silent and idle
   (GPU below 10 % and almost no CPU) for `STALL_MINUTES`, telling you to re-run the cell, which resumes. Training runs in the
-  background; `sc.watch_training(cfg)` is a live view (bar, loss, ETA, GPU) and `auto_restart=True` restarts a hung run from its
-  last checkpoint.
+  cell itself (`sc.start_training(cfg)`): its step bar, loss and evaluations stream into the cell and the log on Drive, a hung run
+  is restarted from its last checkpoint (up to 3 times), stopping the cell stops training cleanly, and a resume skips the step-0
+  evaluation and probe already recorded. `sc.start_training(cfg, background=True)` keeps the old detached run, followed with
+  `sc.watch_training(cfg)`.
 - **E4, the LLM judge** (`sc.run_judge(cfg, "e3")`, optional and paid): scores the poems on the paper's five judge metrics with the repository's own
   judge (`qwen/qwen3-235b-a22b-2507`, strict v2 prompts, temperature 0, through OpenRouter; needs the Colab secret `OPENROUTER_API_KEY`).
   `evaluation/run_llm_judge.py` runs the repository's parallel workers and merge, and adds a preflight call, safe re-runs (failed poems
