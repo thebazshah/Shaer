@@ -9,7 +9,7 @@ Every long step reports progress and is watched, because Colab sometimes hangs:
   * a heartbeat line every ~20 s says how long the step has run, how long it has been silent, and what the GPU is doing,
   * a step that is silent AND idle (GPU below 10 % and almost no CPU) for `cfg.stall_minutes` is stopped with a clear message;
     re-running the cell resumes where it left off,
-  * training runs in the background and `watch_training` shows a live bar, loss, ETA and GPU, and can restart a hung run.
+  * training runs in the notebook cell with live progress (or detached with background=True, followed by `watch_training`).
 
 Flow selection (`make_config`):
   BASE_MODEL == "Navid-AI/Yehia-7B-preview"          -> paper flow        E0, E1, E2, E3 as in the paper
@@ -18,6 +18,11 @@ Flow selection (`make_config`):
   anything else                                      -> ValueError
 """
 from __future__ import annotations
+
+# Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
+# (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
+__version__ = "1.7.0"
+__updated__ = "2026-11-19 07:05 UTC"
 
 import collections
 import dataclasses
@@ -391,8 +396,23 @@ def sync_repo(cfg: Config) -> None:
             link.rename(aside)
             print(f"note: {link} already existed as a real folder on this VM; moved it to {aside} (nothing was deleted)")
         link.symlink_to(target, target_is_directory=True)
-    head = subprocess.run(["git", "-C", str(repo), "log", "--oneline", "-1"], capture_output=True, text=True).stdout.strip()
-    print("code:", head, "| outputs ->", cfg.drive_root)
+    print(code_version(cfg), "| outputs ->", cfg.drive_root)
+
+
+def code_version(cfg: Config) -> str:
+    """One line naming the code that is running: module version and date, git commit, branch and commit time."""
+    head = subprocess.run(["git", "-C", str(cfg.repo_dir), "log", "-1", "--format=%h %cd %s", "--date=format-local:%Y-%m-%d %H:%M UTC"],
+                          capture_output=True, text=True, env={**os.environ, "TZ": "UTC"}).stdout.strip()
+    return f"code: v{__version__} (updated {__updated__}) | branch {cfg.branch} | commit {head or 'unknown'}"
+
+
+def check_version(notebook_version: str) -> None:
+    """Warn loudly when the notebook copy and the downloaded code are not the same version."""
+    if notebook_version == __version__:
+        print(f"✔ notebook v{notebook_version} matches the code v{__version__} (updated {__updated__})")
+    else:
+        print(f"⚠ VERSION MISMATCH: this notebook is v{notebook_version}, the downloaded code is v{__version__} (updated {__updated__}).\n"
+              "  Open the latest reproduce_shaer_a100.ipynb from GitHub (branch dev), or re-run this cell if the code is older.")
 
 
 def check_environment(cfg: Config) -> None:
@@ -683,6 +703,10 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
     """start_training's default: run train_sft.py in this cell, stream its output, restart it when it hangs."""
     t0 = _start(f"training run '{cfg.run_name}' in this cell",
                 "startup (model load, tokenising, packing) takes several minutes, then the step bar appears")
+    version = code_version(cfg)
+    print("  " + version, flush=True)
+    with open(log, "a", encoding="utf-8") as handle:     # so the log on Drive also says which code produced each start
+        handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC | start_training | {version}\n")
     restarts = 0
     try:
         while True:
