@@ -414,7 +414,7 @@ def load_system(sysdir: Path, mode: str) -> tuple[list[dict], dict]:
 def summarize(m3_dir: Path, reps: int = 1000, seed: int = 7, reference: str = "reference") -> dict:
     import summarize_structural as ss        # the repository's own definitions, unchanged
     m3_dir = Path(m3_dir)
-    systems = sorted(p.name for p in m3_dir.iterdir() if p.is_dir() and any(p.glob("*.jsonl")))
+    systems = sorted(p.name for p in m3_dir.iterdir() if p.is_dir() and any((p / f"{m}.jsonl").exists() for m in MODES))
     res = {"systems": {}, "checks": {}, "config": {"margins": [str(m) for m in MARGINS], "default_margin": DEFAULT_MARGIN,
                                                    "bootstrap_reps": reps, "seed": seed}}
     per_poem_all: dict = {}

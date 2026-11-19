@@ -132,6 +132,19 @@ def test_nearest_points_at_the_broken_foot():
     (["عظيم", "العميم", "نديم"], "م", None),
     (["قلب", "حبيب", "قريب", "لهيب"], "ب", "sinad_ridf"),      # an open yāʾ votes for a ridf: قلب is flagged
     (["باب", "حبيب", "قريب", "لهيب"], "ب", "sinad_ridf"),      # alif against yāʾ
+    # M3 controls: a long vowel or a hāʾ after a voweled letter is the rawī only when most bayts support it
+    (["الهوى", "النوى", "الجوى", "المنى"], "ا", None),          # maqṣūra although three share the wāw
+    (["الدجى", "الثرى", "المنى", "المبتدا", "فتى"], "ا", None),  # المبتدا joins a maqṣūra poem
+    (["دعا", "الرضا", "العلا", "هنا"], "ا", None),             # ا after a stem of two letters can be the rawī
+    (["القمرا", "نفرا", "الجنى", "هنا"], "ر", "rawi"),        # iṭlāq (rawī ر) against maqṣūra
+    (["الخطابا", "الصغارا"], "ب", "rawi"),                    # iṭlāq alif on two consonants
+    (["حبّا", "أمرا"], "ب", "rawi"),
+    (["القمرا", "نفرا", "السفرا", "سحرا"], "ر", None),
+    (["صدِّهِ", "عقدِهِ", "جفنِهِ", "سلمِهِ"], "د", "rawi"),     # hāʾ after a mutaḥarrik is the waṣl
+    (["صدِّهِ", "عقدِهِ", "بعدِهِ", "وعدِهِ"], "د", None),
+    (["تراهُ", "هواهُ", "رضاهُ", "سواهُ"], "ه", None),          # ... after a long vowel it is the rawī
+    (["خربه", "معمره", "حنظله", "كريمه"], "ب", "rawi"),       # tāʾ marbūṭa after different letters
+    (["رحمه", "نعمه", "حكمه", "ظلمه"], "م", None),
 ])
 def test_rhyme_cases(ends, rawi, issue):
     r = analyse(ends, [None] * len(ends))

@@ -17,7 +17,10 @@ bayts end with the same word(s), that ending is the refrain and the rhyme is rea
 
 Where the written text leaves it open whether a final ا/و/ي/ى, ه or ة is the rawī or a waṣl, both are considered for each
 bayt and the poem-level choice that makes the most bayts agree is taken (for example الهوى / النوى / المنى rhyme on the
-alif, while دارِها / جارِها rhyme on the rāʾ).
+alif, while دارِها / جارِها rhyme on the rāʾ). A long vowel after the rhyme consonant and a hāʾ after a voweled letter are
+waṣl by rule; they are taken as the rawī only when three bayts in four support that reading (a maqṣūra alif: ى, or ا after a stem
+of at most two letters as in دعا / الرضا / هنا; a hāʾ after a long vowel or sukūn as in تراهُ / منهُ). So القمرا / نفرا
+(iṭlāq, rawī ر) do not rhyme with هنا / الجنى, nor بعقدِهِ with بسلمِهِ, nor كريمه with قتيله.
 """
 from __future__ import annotations
 
@@ -236,6 +239,71 @@ def _letters_with_end(word: str, reading, line_end: bool = True) -> list:
     return trace
 
 
+def _haa_is_wasl(letters: list, j: int, written: dict | None = None) -> bool:
+    """A hāʾ (pronoun or tāʾ marbūṭa) after a mutaḥarrik is a waṣl; after a sākin it is the rawī (مِنْهُ). A sukūn written
+    on the letter before decides even when the reading was taken from the bare letters."""
+    if j < 1:
+        return False
+    marks = (written or {}).get(j - 1, (0, None))[1]
+    if marks and SUKUN in marks:
+        return False
+    prev = letters[j - 1][0]
+    if prev in (ALEF, ALEF_MAQSURA, ALEF_MADDA) or (prev == WAW and letters[j][0] == HAA and marks is not None
+                                                     and not _written_voweled(marks)):
+        return False                   # تراهُ، أضاعوه: a written long vowel before the hāʾ, whatever a bare-letter reading
+                                       # says (ـيه is left to the reading: -īhi in فيه, -iyah in هاويه)
+    return letters[j - 1][2].endswith("1") or _written_voweled(marks)
+
+
+def _maqsura_like(word: str) -> bool:
+    """The word's final alif can itself be the rawī (alif maqṣūra): written ى, or ا after a stem of at most two letters
+    (دعا، الرضا، هنا، العلا; the article and the conjunctions و/ف, and بـ/كـ/لـ before the article, are not counted).
+    A longer stem, a shadda before the alif or a tanwīn marks the alif of iṭlāq (القمرا، ثيابا، حبّا، أمرًا), a waṣl."""
+    units = arudi._units(word)
+    if not units:
+        return False
+    last = units[-1][0]
+    if last == ALEF_MAQSURA:
+        return True
+    if last != ALEF or len(units) < 2:
+        return False
+    if any("ً" in m for _, m in units[-2:]) or SHADDA in units[-2][1] or units[-2][0] == HAA:
+        return False                   # ـها: the alif is the khurūj after a hāʾ waṣl
+    return len(_stem(word)) <= 2
+
+
+def _stem(word: str, drop_last: int = 1) -> str:
+    """The written letters of the word without its last `drop_last` letters, the article and the conjunctions و/ف (and
+    بـ/كـ/لـ before the article)."""
+    stem = "".join(l for l, _ in arudi._units(word)[:-drop_last])
+    stem = re.sub("^[وف](?=..)", "", stem)
+    return re.sub("^(?:[بكل]?ال|لل)(?=..)", "", stem)
+
+
+def _weak(u: "Unit", i: int) -> bool:
+    """Is taking letter i of the rhyme word as the rawī only a latitude (a reading that holds when most bayts share it)?
+    True for a long vowel (sākin ا/و/ي/ى) other than a maqṣūra alif ending the word, and for a hāʾ (or a tāʾ marbūṭa read
+    as hāʾ) after a mutaḥarrik, unless the hāʾ is a root letter as far as the written word shows (الله، الشبه، العمه)."""
+    l, m, b = u.letters[i]
+    if l == TA_MARBUTA and i < len(u.letters) - 1:
+        return False                   # read with its vowel (ـةِ + the lengthening) it is a tāʾ: a consonant
+    if l in (HAA, TA_MARBUTA):
+        if not _haa_is_wasl(u.letters, i, u._written):
+            return False
+        bare = arudi.strip_marks(u.word)
+        return not (l == HAA and bare.endswith(HAA) and (ALLAH_END.search(bare) or len(_stem(u.word)) == 2))
+    if l in MADD and b == "0" and m != "virtual":
+        if _written_voweled(u.written_marks(i)):
+            return False               # a shadda or vowel is written on it: a consonant (حَيّ، عَلِيِّ)
+        k, units = u.written_index(i), arudi._units(u.word)
+        if (l in (WAW, YAA) and k is not None and k == len(units) - 2 and not units[k][1]
+                and (units[-1][0] == TA_MARBUTA or (units[-1][0] == HAA and not _written_voweled(units[-1][1])))):
+            return False               # ـية, and unmarked ـيه / ـوه: -iyyah / -uwwah as much as -īh / -ūh (الزكيه، البريه);
+                                       # a vowel on the hāʾ (معانيهِ) shows the pronoun after a long vowel
+        return not (i == len(u.letters) - 1 and l in (ALEF, ALEF_MAQSURA) and _maqsura_like(u.word))
+    return False
+
+
 def _candidates(letters: list, written: dict | None = None) -> list:
     """Possible rawī positions for one bayt, most classical first. `written` ({trace index: written marks}) lets a vowel
     or shadda written before a hāʾ count even when the reading was taken from the bare letters (سَنِيَّه: rawī ي)."""
@@ -246,8 +314,7 @@ def _candidates(letters: list, written: dict | None = None) -> list:
     last_l, last_m, last_b = letters[-1]
     i = n - 1
     def haa_is_wasl(j: int) -> bool:
-        """A hāʾ (pronoun or tāʾ marbūṭa) after a mutaḥarrik is a waṣl; after a sākin it is the rawī (مِنْهُ)."""
-        return j >= 1 and (letters[j - 1][2].endswith("1") or _written_voweled((written or {}).get(j - 1, (0, None))[1]))
+        return _haa_is_wasl(letters, j, written)
 
     if last_l in MADD and last_b == "0" and n >= 2:
         j = n - 2
@@ -323,22 +390,32 @@ def analyse(ajuz_lines: list[str], last_readings: list, sadr_first: str | None =
             rs = arudi.word_readings(w, use_lexicon=False)
             reading = min(rs, key=lambda r: r.cost) if rs else None
         u = Unit(w, _letters_with_end(w, reading, line_end=not (use and has)))
-        u.candidates = _candidates(u.letters, _align_written(u.word, u.letters))
+        u._written = _align_written(u.word, u.letters)
+        u.candidates = _candidates(u.letters, u._written)
         units.append(u)
 
-    # poem-level choice of the rawī
-    # each bayt votes for its candidates, the classical reading first (weights 1, 0.6, 0.35): دارِها votes ر before ه,
-    # منزلا votes ل before ا, while الهوى / المنى / الدجى agree only on the alif
-    votes = Counter()
-    for u in units:
-        if u:
-            seen_letters = set()
-            for r, (i, rule) in enumerate(u.candidates):
-                k = fold(u.letters[i][0])
-                if k not in seen_letters:
-                    seen_letters.add(k)
-                    votes[k] += CANDIDATE_WEIGHTS[min(r, len(CANDIDATE_WEIGHTS) - 1)]
-    rawi = max(votes, key=lambda k: (votes[k], k not in MADD)) if votes else ""
+    # poem-level choice of the rawī: the letter the most bayts can take as a strong reading, then as any allowed reading,
+    # then the weighted vote (each bayt votes for its
+    # candidates, the classical reading first: دارِها votes ر before ه, منزلا votes ل before ا), then a consonant.
+    # A weak reading (see _weak) counts only when it is a strong reading in at least three bayts of four: الدجى / الثرى /
+    # المنى / المبتدا rhyme on the alif, القمرا / الجنى / هنا and الصبا / ذكرى / ذكرا do not.
+    live = [u for u in units if u and u.candidates]
+    strong = Counter()
+    for u in live:
+        strong.update({fold(u.letters[i][0]) for i, _ in u.candidates if not _weak(u, i)})
+    allowed_weak = {k for k, c in strong.items() if 4 * c >= 3 * len(live)}
+    votes, cover = Counter(), Counter()
+    for u in live:
+        eff = [(i, r) for i, r in u.candidates if not _weak(u, i) or fold(u.letters[i][0]) in allowed_weak]
+        u.candidates = eff or u.candidates[:1]
+        seen_letters = set()
+        for r, (i, rule) in enumerate(u.candidates):
+            k = fold(u.letters[i][0])
+            if k not in seen_letters:
+                seen_letters.add(k)
+                cover[k] += 1
+                votes[k] += CANDIDATE_WEIGHTS[min(r, len(CANDIDATE_WEIGHTS) - 1)]
+    rawi = max(votes, key=lambda k: (strong[k], cover[k], votes[k], k not in MADD)) if votes else ""
     for u in units:
         if not u:
             continue
