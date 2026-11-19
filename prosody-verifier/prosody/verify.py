@@ -59,6 +59,7 @@ class BaytVerdict:
     tasri: bool = False
     tadwir: bool = False
     reason: str = ""
+    path: str = ""          # how the bayt was resolved: pair (a permitted ʿarūḍ/ḍarb pair), tadwir, no_pair, none
 
 
 @dataclass
@@ -137,6 +138,11 @@ class Verifier:
         self.max_cost = max_cost
         self.diagnose = diagnose
         self.ignore_diacritics = ignore_diacritics
+        # scan results by hemistich text: a scan does not depend on the requested meter or form, so checking a poem in
+        # several forms (or re-checking it) scans each hemistich once. Verifiers with the same lexicon, strictness and
+        # diacritics mode may share one cache (share_cache).
+        self._scan_cache: dict = {}
+        self.cache_limit = 50_000
 
     def _text(self, text: str) -> str:
         if not self.ignore_diacritics:
@@ -144,11 +150,27 @@ class Verifier:
         return " ".join(arudi.strip_marks(w) for w in arudi.tokenize(text))
 
     # ---------------------------------------------------------------------------------------------- hemistich
+    def share_cache(self, other: "Verifier") -> "Verifier":
+        """Use other's scan cache (both must read text the same way: same lexicon, strictness and diacritics mode)."""
+        assert (self.lexicon is other.lexicon and self.strict == other.strict
+                and self.ignore_diacritics == other.ignore_diacritics), "a scan cache can only be shared by equal readers"
+        self._scan_cache = other._scan_cache
+        return self
+
+    def _scan(self, text: str) -> list:
+        key = self._text(text)
+        ms = self._scan_cache.get(key)
+        if ms is None:
+            if len(self._scan_cache) >= self.cache_limit:
+                self._scan_cache.clear()
+            ms = self._scan_cache[key] = scan(key, strict=self.strict, lexicon=self.lexicon)
+        return ms
+
     def _hemistich(self, text: str, meter: str, form: str, positions: tuple, ends: set | None = None) -> tuple:
         """Candidates in the requested meter, and the most plausible analysis in any meter **for the same position**:
         a reading that only fits a ḍarb (e.g. a pause on the last word) is no rival for a sadr outside the opening bayt.
         The returned match list is restricted to those positions as well."""
-        ms = [m for m in scan(self._text(text), strict=self.strict, lexicon=self.lexicon) if m.position in positions]
+        ms = [m for m in self._scan(text) if m.position in positions]
         best_any = ms[0] if ms else None
         cands = [m for m in ms if m.meter == meter and m.form == form and (ends is None or m.end in ends)]
         return cands, best_any, ms
@@ -194,19 +216,19 @@ class Verifier:
             av = self._judge(ajuz, [a], abest, meter, form, "ajuz")
             ok = sv.ok and av.ok
             reason = "; ".join(x for x in (sv.reason and "sadr: " + sv.reason, av.reason and "ʿajuz: " + av.reason) if x)
-            return BaytVerdict(0, sv, av, ok, s.end, a.end, tasri, False, reason), sc, ac
+            return BaytVerdict(0, sv, av, ok, s.end, a.end, tasri, False, reason, "pair"), sc, ac
         sv = self._judge(sadr, sc, sbest, meter, form, "sadr")
         av = self._judge(ajuz, ac, abest, meter, form, "ajuz")
         if sc and ac:
             reason = "the ʿarūḍ and ḍarb forms are not a permitted pair"
-            return BaytVerdict(0, sv, av, False, sc[0].end, ac[0].end, False, False, reason), sc, ac
+            return BaytVerdict(0, sv, av, False, sc[0].end, ac[0].end, False, False, reason, "no_pair"), sc, ac
         joined = self._tadwir(sadr, ajuz, meter, form)
         if joined is not None:
             sv2 = HemistichVerdict(sadr, True, joined[0], sbest, "")
             av2 = HemistichVerdict(ajuz, True, joined[1], abest, "")
-            return BaytVerdict(0, sv2, av2, True, joined[0].end, joined[1].end, False, True, "tadwīr"), [joined[0]], [joined[1]]
+            return BaytVerdict(0, sv2, av2, True, joined[0].end, joined[1].end, False, True, "tadwīr", "tadwir"), [joined[0]], [joined[1]]
         reason = "; ".join(x for x in (sv.reason and "sadr: " + sv.reason, av.reason and "ʿajuz: " + av.reason) if x)
-        return BaytVerdict(0, sv, av, False, "", "", False, False, reason), sc, ac
+        return BaytVerdict(0, sv, av, False, "", "", False, False, reason, "none"), sc, ac
 
     def _tadwir(self, sadr: str, ajuz: str, meter: str, form: str):
         """A mudawwar bayt: the two hemistichs are one continuous line whose prosodic split falls inside a word.
