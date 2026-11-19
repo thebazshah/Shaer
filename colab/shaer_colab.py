@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.7.0"
-__updated__ = "2026-11-19 07:05 UTC"
+__version__ = "1.8.0"
+__updated__ = "2026-11-19 07:15 UTC"
 
 import collections
 import dataclasses
@@ -415,9 +415,40 @@ def check_version(notebook_version: str) -> None:
               "  Open the latest reproduce_shaer_a100.ipynb from GitHub (branch dev), or re-run this cell if the code is older.")
 
 
+def _colab_runtime_info() -> list[str]:
+    """The Colab runtime itself (the notebook's own Python, not the training environment): runtime, OS, Python, GPU driver."""
+    import platform
+    import sys
+    lines = []
+    tag = os.environ.get("COLAB_RELEASE_TAG", "")
+    os_name = ""
+    try:
+        for line in pathlib.Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                os_name = line.split("=", 1)[1].strip('"')
+    except OSError:
+        pass
+    lines.append(f"Colab runtime: {tag or 'release tag not available'} | {os_name or platform.platform()} | "
+                 f"notebook Python {platform.python_version()}")
+    try:
+        smi = subprocess.run(["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=20).stdout.strip()
+        cuda = re.search(r"CUDA Version:\s*([\d.]+)", subprocess.run(["nvidia-smi"], capture_output=True, text=True,
+                                                                     timeout=20).stdout)
+        if smi:
+            lines.append(f"GPU driver: {smi.splitlines()[0]} | driver supports CUDA up to {cuda.group(1) if cuda else '?'}")
+    except (OSError, subprocess.TimeoutExpired):
+        lines.append("GPU driver: nvidia-smi not available (no GPU runtime?)")
+    return lines
+
+
 def check_environment(cfg: Config) -> None:
-    """Print package versions and the GPU, and say which experiments this GPU supports."""
+    """Print the Colab runtime (OS, Python, GPU driver), the training environment's Python and package versions (checked against
+    requirements-colab.txt) and the GPU, and say which experiments this GPU supports."""
     t0 = _start("checking the training environment and the GPU", "a few seconds")
+    print(code_version(cfg))
+    for line in _colab_runtime_info():
+        print(line)
     run([cfg.py, pathlib.Path(cfg.repo_dir, "colab", "env_check.py")], label="environment check", env=cfg.env(), stall_after=300)
     run([cfg.py, "-m", "bitsandbytes"], label="bitsandbytes check", env=cfg.env(), tail=5, check=False, stall_after=300)
     _finish(t0, "environment check")

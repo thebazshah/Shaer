@@ -22,7 +22,7 @@ It is not a full end-to-end reproduction notebook for training.
 - [reproduce_shaer_a100.ipynb](./reproduce_shaer_a100.ipynb) runs experiments E0-E3 and saves everything to Google Drive:
   E0 re-scores the released generations, E1 uses the released adapter, E2 the untuned base model, E3 re-trains.
 - The notebook is plain Python: each cell calls a function of [`shaer_colab.py`](./shaer_colab.py), which runs the repository's scripts
-  (only the package installation uses `!` commands). It clones this repository, installs an isolated Python 3.12 environment
+  (only the package installation uses `!` commands). It clones this repository, installs an isolated Python 3.12 environment (on Colab's latest runtime, 2026.10+ with Python 3.13, `uv` downloads a standalone 3.12; the notebook is not pinned to an old runtime)
   from [`requirements-colab.txt`](./requirements-colab.txt) (transformers 4.43.0, peft 0.12.0, bitsandbytes 0.43.3, torch 2.3.1)
   next to Colab's own packages, and starts the scripts with that environment's interpreter (`env_check.py` and
   `hf_access_check.py` are the two small checks that run there).
