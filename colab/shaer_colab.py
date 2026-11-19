@@ -643,7 +643,10 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     # "latest + best" (it never deletes the best one, nor the latest, which is needed to resume)
     env["SFT_SAVE_TOTAL_LIMIT"] = "1"
     if not gradient_checkpointing:
-        env["SFT_GRADIENT_CHECKPOINTING"] = "0"  # faster, uses more memory (see the notebook text before using it on 40 GB)
+        env["SFT_GRADIENT_CHECKPOINTING"] = "0"  # faster (no recomputed forward pass), uses more memory; same maths
+        print("  gradient checkpointing off: faster steps, more GPU memory"
+              + ("" if background else " (falls back to on by itself if the GPU runs out of memory)"))
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")   # less fragmentation, so the larger activations fit
     if int(save_steps) < 200:
         env["SFT_RESCUE_SAVE_STEPS"] = str(int(save_steps))
         print(f"  extra resume checkpoint every {int(save_steps)} steps (plus the regular one every 200)")
@@ -662,6 +665,18 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     resumed = sorted(p.name for p in cfg.run_dir.glob("checkpoint-*")) if cfg.run_dir.exists() else []
     print(f"▶ training started (pid {proc.pid})" + (f", resuming from the newest complete of {resumed}" if resumed else ""))
     print(f"  log: {log}\n  follow it live with: sc.watch_training(cfg)")
+
+
+def _log_has_oom(log: pathlib.Path, tail_bytes: int = 20000) -> bool:
+    """Whether the end of the training log reports a CUDA out-of-memory error."""
+    try:
+        with open(log, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - tail_bytes))
+            text = f.read().decode("utf-8", "replace").lower()
+    except OSError:
+        return False
+    return "out of memory" in text and ("cuda" in text or "torch" in text)
 
 
 def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto_restart: bool, max_restarts: int) -> None:
@@ -683,6 +698,12 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                     raise
                 restarts += 1
                 print(f"⚠ {exc}\n  restarting from the last checkpoint (restart {restarts}/{max_restarts}) ...", flush=True)
+            except RuntimeError:
+                if env.get("SFT_GRADIENT_CHECKPOINTING") != "0" or not _log_has_oom(log):
+                    raise
+                env["SFT_GRADIENT_CHECKPOINTING"] = "1"      # does not change the maths, and is not part of the resume fingerprint
+                print("⚠ the GPU ran out of memory without gradient checkpointing: restarting with it ON from the last checkpoint "
+                      "(slower steps, much less memory)", flush=True)
     except KeyboardInterrupt:
         print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
         return
