@@ -47,6 +47,8 @@ It is not a full end-to-end reproduction notebook for training.
 - `sc.start_training(cfg)` keeps only two checkpoints on Drive: the latest (to resume from) and the best (lowest eval loss), or one
   when they are the same. It sets `SFT_SAVE_TOTAL_LIMIT=1`, which Hugging Face treats as "latest + best" with `load_best_model_at_end`
   (the yaml's `save_total_limit: 3` stays the default for other runs).
+- `sc.start_training(cfg)` evaluates in batches of 8 rows (`eval_batch_size=8`, through `SFT_PER_DEVICE_EVAL_BATCH_SIZE`; the paper's
+  configuration uses 1, ~31 min per evaluation on an L4). Training is unchanged; the eval loss shifts slightly (token-averaged per batch).
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.

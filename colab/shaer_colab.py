@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.8.0"
-__updated__ = "2026-11-19 07:15 UTC"
+__version__ = "1.9.0"
+__updated__ = "2026-11-19 07:46 UTC"
 
 import collections
 import dataclasses
@@ -232,10 +232,42 @@ _TQDM = re.compile(r"^\s*(?P<desc>[^\r\n]*?)\s*:?\s*(?P<pct>\d{1,3})%\|[^|]*\|\s
 
 
 class _Bars:
-    """Turn the flood of tqdm updates into a few readable bar lines (first, every 10 %, every 30 s, and the end)."""
+    """Turn the flood of tqdm updates into a few readable bar lines (first, every 10 %, every 30 s, and the end).
+
+    Rate and ETA are measured here from the updates themselves (median of the recent per-update rates), not taken from tqdm:
+    after a resume the Trainer's bar jumps from 0 to the resumed step in one update, which makes tqdm's average rate far too fast
+    and its ETA grow for hours. The median ignores that one jump; until three updates are seen no ETA is shown.
+    """
 
     def __init__(self) -> None:
         self.state: dict = {}
+        self.samples: dict = {}
+
+    @staticmethod
+    def _number(text: str) -> float | None:
+        m = re.match(r"\s*([\d.,]+)\s*([kKMG]?)", text or "")
+        if not m:
+            return None
+        value = float(m.group(1).replace(",", ""))
+        return value * {"": 1, "k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9}[m.group(2)]
+
+    def _measured(self, desc: str, n: float | None, total: float | None, now: float) -> str:
+        if n is None:
+            return ""
+        samples = self.samples.setdefault(desc, collections.deque(maxlen=40))
+        if samples and n < samples[-1][1]:
+            samples.clear()                         # a new bar that reuses the description
+        if not samples or n > samples[-1][1]:
+            samples.append((now, n))
+        rates = [(b[1] - a[1]) / (b[0] - a[0]) for a, b in zip(samples, list(samples)[1:]) if b[0] > a[0]]
+        if len(rates) < 3:
+            return ""
+        rate = sorted(rates)[len(rates) // 2]       # items per second
+        if rate <= 0:
+            return ""
+        speed = f"{1 / rate:.1f} s/it" if rate < 1 else f"{rate:,.1f} it/s"
+        eta = f"  ETA {_fmt((total - n) / rate)}" if total and total > n else ""
+        return f"  ({speed}){eta}"
 
     def render(self, line: str) -> str | None:
         m = _TQDM.match(line)
@@ -243,6 +275,7 @@ class _Bars:
             return None
         desc = (m["desc"] or "progress").strip()[-30:] or "progress"
         pct = int(m["pct"])
+        measured = self._measured(desc, self._number(m["n"]), self._number(m["total"]), time.time())   # every update counts
         last_pct, last_t, last_n = self.state.get(desc, (-1, 0.0, None))
         if pct < last_pct:
             last_pct = -1                       # a new bar that reuses the description
@@ -253,8 +286,7 @@ class _Bars:
         if not (last_pct < 0 or pct == 100 or pct >= last_pct + 10 or (m["n"] != last_n and now - last_t >= 30)):
             return ""                           # swallowed
         self.state[desc] = (pct, now, m["n"])
-        eta = f"  ETA {m['eta'].strip()}" if m["eta"] and m["eta"].strip() not in ("?", "") else ""
-        return f"  {desc:<30} [{_bar(pct / 100)}] {pct:3d}%  {m['n'].strip()}/{m['total'].strip()}  elapsed {m['el'].strip()}{eta}"
+        return f"  {desc:<30} [{_bar(pct / 100)}] {pct:3d}%  {m['n'].strip()}/{m['total'].strip()}  elapsed {m['el'].strip()}{measured}"
 
 
 # ------------------------------------------------------------------------------------------------ running commands
@@ -656,7 +688,7 @@ def _training_pid(cfg: Config) -> int | None:
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
                    save_minutes: float | None = 10, background: bool = False, auto_restart: bool = True,
-                   max_restarts: int = 3) -> None:
+                   max_restarts: int = 3, eval_batch_size: int = 8) -> None:
     """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
 
     The output (step bar with ETA, loss lines, evaluation) streams into the cell and is also appended to the log on Drive. While the
@@ -665,6 +697,10 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     resumes from the newest complete one. If the run is silent AND idle (GPU and CPU) for `cfg.stall_minutes`, it is stopped and,
     with `auto_restart`, restarted from the last checkpoint (up to `max_restarts` times).
     background=True: the old behaviour, a detached process followed with sc.watch_training(cfg).
+    eval_batch_size: rows per evaluation batch (default 8; the paper's configuration uses 1). Evaluation over the 3,481 eval rows
+    runs every 200 steps and took ~31 min on an L4 at batch size 1. Training is not affected; the reported eval loss shifts slightly,
+    because a batch's loss is averaged over all its tokens instead of per row. After an out-of-memory error during evaluation the
+    run restarts with half the batch size.
 
     save_steps: write a resume checkpoint every this many optimiser steps. The default, 200, is the paper's schedule. A smaller value
     (for example 50) ADDS extra checkpoints in between, so an interruption loses fewer steps; evaluation, the probe and the choice of
@@ -698,6 +734,11 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         print("  gradient checkpointing off: faster steps, more GPU memory"
               + ("" if background else " (falls back to on by itself if the GPU runs out of memory)"))
     env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")   # less fragmentation, so the larger activations fit
+    if int(eval_batch_size) < 1:
+        raise ValueError("eval_batch_size must be at least 1")
+    env["SFT_PER_DEVICE_EVAL_BATCH_SIZE"] = str(int(eval_batch_size))
+    if int(eval_batch_size) != 1:
+        print(f"  evaluation in batches of {int(eval_batch_size)} rows (the paper's configuration: 1); training is unchanged")
     if int(save_steps) < 200:
         env["SFT_RESCUE_SAVE_STEPS"] = str(int(save_steps))
         print(f"  extra resume checkpoint every {int(save_steps)} steps (plus the regular one every 200)")
@@ -718,8 +759,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     print(f"  log: {log}\n  follow it live with: sc.watch_training(cfg)")
 
 
-def _log_has_oom(log: pathlib.Path, tail_bytes: int = 20000) -> bool:
-    """Whether the end of the training log reports a CUDA out-of-memory error."""
+def _log_has_oom(log: pathlib.Path, tail_bytes: int = 20000, during_eval: bool = False) -> bool:
+    """Whether the end of the training log reports a CUDA out-of-memory error (with during_eval: raised inside evaluation)."""
     try:
         with open(log, "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -727,7 +768,11 @@ def _log_has_oom(log: pathlib.Path, tail_bytes: int = 20000) -> bool:
             text = f.read().decode("utf-8", "replace").lower()
     except OSError:
         return False
-    return "out of memory" in text and ("cuda" in text or "torch" in text)
+    oom = "out of memory" in text and ("cuda" in text or "torch" in text)
+    if not during_eval:
+        return oom
+    last = text[text.rfind("traceback"):] if "traceback" in text else text
+    return oom and any(k in last for k in ("evaluation_loop", "prediction_step", "def evaluate", "in evaluate", "meteraux"))
 
 
 def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto_restart: bool, max_restarts: int) -> None:
@@ -754,11 +799,23 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                 restarts += 1
                 print(f"⚠ {exc}\n  restarting from the last checkpoint (restart {restarts}/{max_restarts}) ...", flush=True)
             except RuntimeError:
-                if env.get("SFT_GRADIENT_CHECKPOINTING") != "0" or not _log_has_oom(log):
+                if not _log_has_oom(log):
                     raise
-                env["SFT_GRADIENT_CHECKPOINTING"] = "1"      # does not change the maths, and is not part of the resume fingerprint
-                print("⚠ the GPU ran out of memory without gradient checkpointing: restarting with it ON from the last checkpoint "
-                      "(slower steps, much less memory)", flush=True)
+                eval_bs = int(env.get("SFT_PER_DEVICE_EVAL_BATCH_SIZE", "1"))
+                if eval_bs > 1 and _log_has_oom(log, during_eval=True):
+                    env["SFT_PER_DEVICE_EVAL_BATCH_SIZE"] = str(eval_bs // 2)    # not part of the resume fingerprint
+                    print(f"⚠ the GPU ran out of memory during evaluation: restarting from the last checkpoint with evaluation "
+                          f"batches of {eval_bs // 2}", flush=True)
+                elif env.get("SFT_GRADIENT_CHECKPOINTING") == "0":
+                    env["SFT_GRADIENT_CHECKPOINTING"] = "1"  # does not change the maths, and is not part of the resume fingerprint
+                    print("⚠ the GPU ran out of memory without gradient checkpointing: restarting with it ON from the last "
+                          "checkpoint (slower steps, much less memory)", flush=True)
+                elif eval_bs > 1:
+                    env["SFT_PER_DEVICE_EVAL_BATCH_SIZE"] = str(eval_bs // 2)
+                    print(f"⚠ the GPU ran out of memory: restarting from the last checkpoint with evaluation batches of "
+                          f"{eval_bs // 2}", flush=True)
+                else:
+                    raise
     except KeyboardInterrupt:
         print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
         return

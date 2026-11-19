@@ -369,7 +369,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         lr_scheduler_type=str(optimizer.get("lr_scheduler_type", defaults.get("lr_scheduler_type", "cosine"))),
         max_grad_norm=float(optimizer.get("max_grad_norm", defaults.get("max_grad_norm", 1.0))),
         per_device_train_batch_size=int(mode_overrides.get("per_device_train_batch_size", training.get("per_device_train_batch_size", defaults.get("per_device_train_batch_size", 1)))),
-        per_device_eval_batch_size=int(mode_overrides.get("per_device_eval_batch_size", training.get("per_device_eval_batch_size", defaults.get("per_device_eval_batch_size", 1)))),
+        per_device_eval_batch_size=int(env_or("SFT_PER_DEVICE_EVAL_BATCH_SIZE", mode_overrides.get("per_device_eval_batch_size", training.get("per_device_eval_batch_size", defaults.get("per_device_eval_batch_size", 1))))),
         gradient_accumulation_steps=int(mode_overrides.get("gradient_accumulation_steps", training.get("gradient_accumulation_steps", defaults.get("gradient_accumulation_steps", 8)))),
         num_train_epochs=float(env_or("SFT_NUM_TRAIN_EPOCHS", mode_overrides.get("num_train_epochs", training.get("num_train_epochs", defaults.get("num_train_epochs", 1.0))))),
         max_steps=int(env_or("SFT_MAX_STEPS", mode_overrides.get("max_steps", defaults.get("max_steps", 1000)))),
