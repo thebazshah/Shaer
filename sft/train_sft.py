@@ -11,6 +11,7 @@ import random
 import re
 import shutil
 import sys
+import tempfile
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
@@ -2010,6 +2011,135 @@ def latest_complete_checkpoint_step(output_dir: Path) -> int:
     return max(steps) if steps else 0
 
 
+# ------------------------------------------------------------------------------------------------ prepared-data cache
+DATA_CACHE_FORMAT = 1
+# The steps before training (download, annotate, filter, meter ids, probe bank, tokenise, pack) are deterministic for a given
+# dataset version, tokenizer and data settings, and take several minutes. Their results are saved once (on Drive in the Colab
+# notebook, as sft/outputs is linked there) and loaded on the next start. The key covers everything that decides the result:
+DATA_CACHE_CFG_FIELDS = (
+    "mode", "dataset_id", "base_model_id", "trust_remote_code", "seed", "max_seq_length", "packing", "completion_only_loss",
+    "truncation_mode", "min_bayts", "max_bayts", "drop_meters", "probe_per_meter", "limit_train_rows", "limit_eval_rows",
+    "limit_test_rows",
+)
+DATA_CACHE_ROOTS = ("load_or_build_dataset_splits", "filter_dataset_for_run", "build_meter_class_map", "add_meter_class_ids",
+                    "cap_rows_per_meter", "maybe_limit_dataset_rows", "build_probe_bank_from_test", "preprocess_dataset")
+
+
+def _data_code_hash() -> str:
+    """Hash of the source of every function of this file the data steps use (followed through their calls), plus the helper
+    modules they rely on. Any change to that code gives a new cache key, so a stale cache is never used."""
+    import ast
+    import inspect
+    src = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    seen, todo = set(), list(DATA_CACHE_ROOTS)
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in functions:
+            continue
+        seen.add(name)
+        for node in ast.walk(functions[name]):
+            if isinstance(node, ast.Name) and node.id in functions:
+                todo.append(node.id)
+    h = hashlib.sha256()
+    for name in sorted(seen):
+        h.update(name.encode())
+        h.update((ast.get_source_segment(src, functions[name]) or "").encode())
+    for module_name in ("rewards.common", "split_utils"):
+        module = sys.modules.get(module_name)
+        if module is not None and getattr(module, "__file__", None):
+            h.update(Path(module.__file__).read_bytes())
+    h.update(inspect.getsource(load_dataset_resilient).encode())
+    return h.hexdigest()
+
+
+class DataCache:
+    """Save / load the prepared datasets of a run (see DATA_CACHE_CFG_FIELDS). SFT_DATA_CACHE=0 turns it off; the smoke test
+    (mode sanity) never uses it, so it always exercises the full pipeline."""
+
+    def __init__(self, cfg: RuntimeConfig, token: str, logger: logging.Logger):
+        self.logger = logger
+        self.enabled = str2bool(os.getenv("SFT_DATA_CACHE", "1")) and cfg.mode != "sanity"
+        self.dir = self.local = None
+        if not self.enabled:
+            return
+        api = HfApi(token=token or None)
+
+        def sha(kind: str, repo: str) -> str:
+            try:
+                info = api.dataset_info(repo) if kind == "dataset" else api.model_info(repo)
+                return str(info.sha or "unknown")
+            except Exception as exc:  # offline or rate-limited: use the cache only if it was built the same way
+                logger.warning("Data cache: could not read the %s version of %s (%r)", kind, repo, exc)
+                return "unknown"
+
+        payload = {
+            "format": DATA_CACHE_FORMAT,
+            "cfg": {name: getattr(cfg, name, None) for name in DATA_CACHE_CFG_FIELDS},
+            "dataset_revision": sha("dataset", cfg.dataset_id),
+            "model_revision": sha("model", cfg.base_model_id),     # the tokenizer comes from the base model's repository
+            "code": _data_code_hash(),
+        }
+        self.key = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
+        self.payload = payload
+        root = Path(os.getenv("SFT_DATA_CACHE_DIR", str(SFT_ROOT / "outputs" / "data_cache")))
+        self.dir = root / self.key
+        self.local = Path(os.getenv("SFT_DATA_CACHE_LOCAL", str(Path(tempfile.gettempdir()) / "shaer_sft_data_cache"))) / self.key
+
+    def load(self) -> dict[str, Any] | None:
+        from datasets import load_from_disk
+        if not self.enabled:
+            self.logger.info("Data cache: off")
+            return None
+        if not (self.dir / "_COMPLETE").exists():
+            self.logger.info("Data cache: none for key %s yet; preparing the data (it is saved to %s afterwards)", self.key, self.dir)
+            return None
+        started = time.time()
+        try:
+            if not (self.local / "_COMPLETE").exists():          # memory-mapped datasets are read from local disk, not Drive
+                if self.local.exists():
+                    shutil.rmtree(self.local)
+                shutil.copytree(self.dir, self.local)
+            meta = json.loads((self.local / "meta.json").read_text(encoding="utf-8"))
+            out = {name: load_from_disk(str(self.local / name)) for name in ("train", "live_eval", "test", "probe")}
+        except Exception as exc:
+            self.logger.warning("Data cache: could not load %s (%r); preparing the data again", self.dir, exc)
+            return None
+        for name, ds in out.items():
+            if len(ds) != int(meta["rows"][name]):
+                self.logger.warning("Data cache: %s has %d rows, expected %s; preparing the data again", name, len(ds), meta["rows"][name])
+                return None
+        out["meta"] = meta
+        self.logger.info("Data cache: loaded the prepared data from %s in %.0f s (train %d packed sequences, eval %d, test %d, "
+                         "probe %d) - skipping download, annotation, filtering, tokenising and packing",
+                         self.dir, time.time() - started, len(out["train"]), len(out["live_eval"]), len(out["test"]), len(out["probe"]))
+        return out
+
+    def save(self, datasets: dict[str, Dataset], meta: dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        started = time.time()
+        tmp = self.dir.with_name(self.dir.name + ".partial")
+        try:
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            tmp.mkdir(parents=True)
+            for name, ds in datasets.items():
+                ds.save_to_disk(str(tmp / name))
+            meta = {**meta, "key": self.key, "key_payload": self.payload, "created_utc": utc_now_iso(),
+                    "rows": {name: len(ds) for name, ds in datasets.items()}}
+            (tmp / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            (tmp / "_COMPLETE").write_text(utc_now_iso(), encoding="utf-8")   # written last: a cut-off save is never used
+            if self.dir.exists():
+                shutil.rmtree(self.dir)
+            tmp.rename(self.dir)
+            self.logger.info("Data cache: saved the prepared data to %s in %.0f s; the next start loads it from there",
+                             self.dir, time.time() - started)
+        except Exception as exc:
+            self.logger.warning("Data cache: could not save to %s (%r); training continues without it", self.dir, exc)
+
+
 def run_training() -> None:
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH, override=False)
@@ -2064,62 +2194,73 @@ def run_training() -> None:
     logger.info("Resume decision: %s", resume_decision)
     align_resume_trainer_state(resume_path, cfg, logger)
 
-    split_ds, split_summary = load_or_build_dataset_splits(cfg, hf_token, logger)
-    filter_summary_by_split: dict[str, Any] = {}
-    filtered_splits: dict[str, Dataset] = {}
-    for split_name in ["train", "eval", "test"]:
-        filtered_splits[split_name], filter_summary_by_split[split_name] = filter_dataset_for_run(split_ds[split_name], cfg, logger)
+    data_cache = DataCache(cfg, hf_token, logger)
+    cached = data_cache.load()
+    if cached is None:
+        split_ds, split_summary = load_or_build_dataset_splits(cfg, hf_token, logger)
+        filter_summary_by_split: dict[str, Any] = {}
+        filtered_splits: dict[str, Dataset] = {}
+        for split_name in ["train", "eval", "test"]:
+            filtered_splits[split_name], filter_summary_by_split[split_name] = filter_dataset_for_run(split_ds[split_name], cfg, logger)
 
-    train_raw = filtered_splits["train"]
-    live_eval_raw = filtered_splits["eval"]
-    test_raw = filtered_splits["test"]
-    meter_class_map = build_meter_class_map(train_raw)
-    dump_json(cfg.output_dir / "meter_aux_label_map.json", {"label_to_id": meter_class_map})
-    train_raw = add_meter_class_ids(train_raw, meter_class_map)
-    live_eval_raw = add_meter_class_ids(live_eval_raw, meter_class_map)
-    test_raw = add_meter_class_ids(test_raw, meter_class_map)
-    if cfg.mode == "sanity":
-        train_raw = cap_rows_per_meter(train_raw, per_meter=6, seed=cfg.seed)
-        live_eval_raw = cap_rows_per_meter(live_eval_raw, per_meter=2, seed=cfg.seed)
-        test_raw = cap_rows_per_meter(test_raw, per_meter=4, seed=cfg.seed)
-        split_summary["sanity_caps"] = {
-            "train_per_meter": 6,
-            "live_eval_per_meter": 2,
-            "test_per_meter": 4,
-            "probe_per_meter": cfg.probe_per_meter,
+        train_raw = filtered_splits["train"]
+        live_eval_raw = filtered_splits["eval"]
+        test_raw = filtered_splits["test"]
+        meter_class_map = build_meter_class_map(train_raw)
+        dump_json(cfg.output_dir / "meter_aux_label_map.json", {"label_to_id": meter_class_map})
+        train_raw = add_meter_class_ids(train_raw, meter_class_map)
+        live_eval_raw = add_meter_class_ids(live_eval_raw, meter_class_map)
+        test_raw = add_meter_class_ids(test_raw, meter_class_map)
+        if cfg.mode == "sanity":
+            train_raw = cap_rows_per_meter(train_raw, per_meter=6, seed=cfg.seed)
+            live_eval_raw = cap_rows_per_meter(live_eval_raw, per_meter=2, seed=cfg.seed)
+            test_raw = cap_rows_per_meter(test_raw, per_meter=4, seed=cfg.seed)
+            split_summary["sanity_caps"] = {
+                "train_per_meter": 6,
+                "live_eval_per_meter": 2,
+                "test_per_meter": 4,
+                "probe_per_meter": cfg.probe_per_meter,
+            }
+            split_summary["sanity_split_counts"] = {
+                "train": len(train_raw),
+                "live_eval": len(live_eval_raw),
+                "test": len(test_raw),
+            }
+        train_raw = maybe_limit_dataset_rows(train_raw, cfg.limit_train_rows, cfg.seed + 11, "train", logger)
+        live_eval_raw = maybe_limit_dataset_rows(live_eval_raw, cfg.limit_eval_rows, cfg.seed + 22, "eval", logger)
+        test_raw = maybe_limit_dataset_rows(test_raw, cfg.limit_test_rows, cfg.seed + 33, "test", logger)
+        probe_raw = build_probe_bank_from_test(test_raw, cfg, logger)
+        dataset_summary = {
+            "timestamp_utc": utc_now_iso(),
+            "dataset_id": cfg.dataset_id,
+            "split_source": split_summary.get("source", "unknown"),
+            "split_counts": {
+                "train": len(train_raw),
+                "eval": len(live_eval_raw),
+                "test": len(test_raw),
+                "probe_bank": len(probe_raw),
+            },
+            "distribution_tables": build_distribution_report(train_raw, live_eval_raw, test_raw),
+            "filter_summary_by_split": filter_summary_by_split,
+            "row_caps": {
+                "train": cfg.limit_train_rows,
+                "eval": cfg.limit_eval_rows,
+                "test": cfg.limit_test_rows,
+            },
         }
-        split_summary["sanity_split_counts"] = {
-            "train": len(train_raw),
-            "live_eval": len(live_eval_raw),
-            "test": len(test_raw),
-        }
-    train_raw = maybe_limit_dataset_rows(train_raw, cfg.limit_train_rows, cfg.seed + 11, "train", logger)
-    live_eval_raw = maybe_limit_dataset_rows(live_eval_raw, cfg.limit_eval_rows, cfg.seed + 22, "eval", logger)
-    test_raw = maybe_limit_dataset_rows(test_raw, cfg.limit_test_rows, cfg.seed + 33, "test", logger)
-    probe_raw = build_probe_bank_from_test(test_raw, cfg, logger)
-    dataset_summary = {
-        "timestamp_utc": utc_now_iso(),
-        "dataset_id": cfg.dataset_id,
-        "split_source": split_summary.get("source", "unknown"),
-        "split_counts": {
-            "train": len(train_raw),
-            "eval": len(live_eval_raw),
-            "test": len(test_raw),
-            "probe_bank": len(probe_raw),
-        },
-        "distribution_tables": build_distribution_report(train_raw, live_eval_raw, test_raw),
-        "filter_summary_by_split": filter_summary_by_split,
-        "row_caps": {
-            "train": cfg.limit_train_rows,
-            "eval": cfg.limit_eval_rows,
-            "test": cfg.limit_test_rows,
-        },
-    }
-    dump_json(cfg.output_dir / "dataset_summary.json", dataset_summary)
-    split_summary["filter_summary_by_split"] = filter_summary_by_split
-    split_summary["distribution_tables_after_filter"] = dataset_summary["distribution_tables"]
-    dump_json(cfg.output_dir / "split_summary.json", split_summary)
-    write_probe_bank(cfg.output_dir / "probe_bank.jsonl", probe_raw)
+        dump_json(cfg.output_dir / "dataset_summary.json", dataset_summary)
+        split_summary["filter_summary_by_split"] = filter_summary_by_split
+        split_summary["distribution_tables_after_filter"] = dataset_summary["distribution_tables"]
+        dump_json(cfg.output_dir / "split_summary.json", split_summary)
+        write_probe_bank(cfg.output_dir / "probe_bank.jsonl", probe_raw)
+    else:
+        meta = cached["meta"]
+        meter_class_map = {str(k): int(v) for k, v in meta["meter_class_map"].items()}
+        split_summary, dataset_summary, probe_raw = meta["split_summary"], meta["dataset_summary"], cached["probe"]
+        dump_json(cfg.output_dir / "meter_aux_label_map.json", {"label_to_id": meter_class_map})
+        dump_json(cfg.output_dir / "dataset_summary.json", dataset_summary)
+        dump_json(cfg.output_dir / "split_summary.json", split_summary)
+        write_probe_bank(cfg.output_dir / "probe_bank.jsonl", probe_raw)
 
     bf16, fp16 = detect_precision(cfg)
     logger.info("Precision selected: bf16=%s fp16=%s", bf16, fp16)
@@ -2138,9 +2279,15 @@ def run_training() -> None:
     if cfg.enable_meter_aux:
         attach_meter_aux_head(model, meter_class_map, logger, source_dir=adapter_source)
 
-    train_ds = preprocess_dataset(train_raw, tokenizer, cfg, "train_preprocess", logger, packing=cfg.packing)
-    live_eval_ds = preprocess_dataset(live_eval_raw, tokenizer, cfg, "live_eval_preprocess", logger)
-    test_ds = preprocess_dataset(test_raw, tokenizer, cfg, "test_preprocess", logger)
+    if cached is None:
+        train_ds = preprocess_dataset(train_raw, tokenizer, cfg, "train_preprocess", logger, packing=cfg.packing)
+        live_eval_ds = preprocess_dataset(live_eval_raw, tokenizer, cfg, "live_eval_preprocess", logger)
+        test_ds = preprocess_dataset(test_raw, tokenizer, cfg, "test_preprocess", logger)
+        if len(train_ds) and len(live_eval_ds) and len(test_ds):
+            data_cache.save({"train": train_ds, "live_eval": live_eval_ds, "test": test_ds, "probe": probe_raw},
+                            {"meter_class_map": meter_class_map, "split_summary": split_summary, "dataset_summary": dataset_summary})
+    else:
+        train_ds, live_eval_ds, test_ds = cached["train"], cached["live_eval"], cached["test"]
 
     if not len(train_ds) or not len(live_eval_ds) or not len(test_ds):
         raise RuntimeError("one of the SFT datasets is empty after preprocessing")

@@ -22,8 +22,8 @@ from __future__ import annotations
 # __version__ / __updated__: bump on every change to this module (section 2 prints them, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb that works with this code. Raise it (and set the notebook's title line
 # and NOTEBOOK_VERSION to the same value) only when the notebook's cells change; a code-only change needs no new notebook.
-__version__ = "1.13.1"
-__updated__ = "2026-11-20 22:19 UTC"
+__version__ = "1.14.0"
+__updated__ = "2026-11-20 22:40 UTC"
 NOTEBOOK_REQUIRED = "1.13.0"
 
 import collections
@@ -318,6 +318,30 @@ class StepStalled(RuntimeError):
     """A step was silent and idle for too long and was stopped."""
 
 
+_DIE_WITH_PARENT = (
+    "import ctypes, os, signal, sys\n"
+    "parent = int(sys.argv[1])\n"
+    "try:\n"
+    "    ctypes.CDLL('libc.so.6', use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG\n"
+    "except Exception:\n"
+    "    pass\n"
+    "if os.getppid() != parent:   # the notebook died before the line above ran\n"
+    "    sys.exit(1)\n"
+    "os.execvp(sys.argv[2], sys.argv[2:])\n"
+)
+
+
+def _die_with_parent(cmd: list[str]) -> list[str]:
+    """Wrap a command so that it gets SIGTERM when this notebook process dies (Runtime > Restart session, a kernel crash).
+
+    Without it, a step started from a cell outlives a restarted kernel: nobody reads its output any more, its pipe fills, and it
+    hangs (training holding the GPU, a stale pid file blocking the next start). The tiny launcher sets the kernel's
+    parent-death signal and then replaces itself with the real command (same process id), so nothing else changes.
+    """
+    import sys
+    return [sys.executable, "-c", _DIE_WITH_PARENT, str(os.getpid()), *cmd]
+
+
 def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = False, check: bool = True, tail: int | None = None,
         drop: tuple = ("warn",), stall_after: int | None = None, heartbeat: int = 20, progress=None, log_path=None,
         on_start=None, stop_on_interrupt: bool = False) -> int:
@@ -332,8 +356,8 @@ def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = Fal
     `stop_on_interrupt`: when the cell is stopped (KeyboardInterrupt), stop the command too (SIGTERM, then SIGKILL) instead of
     leaving it running.
     """
-    proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1, start_new_session=stop_on_interrupt)
+    proc = subprocess.Popen(_die_with_parent([str(c) for c in cmd]), cwd=cwd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=stop_on_interrupt)
     if on_start:
         on_start(proc)
     lines: queue.Queue = queue.Queue()
@@ -1040,6 +1064,9 @@ def checkpoint_report(cfg: Config) -> None:
     complete = [s for s, _, p in ckpts if not p]
     print(f"  a restart resumes from: {'checkpoint-%d' % max(complete) if complete else 'NOTHING (step 0)'}")
     print(f"  last training step in metrics.jsonl: {_last_logged_step(cfg)}")
+    cache_root = cfg.sft_outputs / "data_cache"
+    caches = sorted(p.name for p in cache_root.iterdir() if (p / "_COMPLETE").exists()) if cache_root.is_dir() else []
+    print(f"  prepared-data cache on Drive: {', '.join(caches) if caches else 'none yet (the next start builds it, ~1 GB)'}")
     decision = cfg.run_dir / "resume_decision.json"
     if decision.exists():
         print("  last resume decision:", decision.read_text().strip()[:400])

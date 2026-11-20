@@ -52,6 +52,13 @@ It is not a full end-to-end reproduction notebook for training.
   (the yaml's `save_total_limit: 3` stays the default for other runs).
 - `sc.start_training(cfg)` evaluates in batches of 8 rows (`eval_batch_size=8`, through `SFT_PER_DEVICE_EVAL_BATCH_SIZE`; the paper's
   configuration uses 1, ~31 min per evaluation on an L4). Training is unchanged; the eval loss shifts slightly (token-averaged per batch).
+- **Prepared-data cache.** Before the first step, `sft/train_sft.py` downloads the dataset, annotates, filters, adds meter ids,
+  builds the probe bank, tokenises and packs (about 11 min on an L4). The result is saved once to Drive
+  (`sft_outputs/data_cache/<key>`, ~1 GB) and later starts copy it to local disk and load it in seconds. The key covers the data
+  settings, the dataset's and base model's Hugging Face revisions and the source of every data function, so any change rebuilds it.
+  `SFT_DATA_CACHE=0` turns it off; the smoke test never uses it.
+- Steps started from a cell (training, generation) stop when the notebook process dies (Runtime > Restart session), instead of
+  running on unattended.
 - `evaluation/generate_shaer_test.py` generates the 3,481 test poems (the repository did not contain this step);
   `evaluation/summarize_structural.py` computes the paper's structural metrics and has been checked so that the released
   generations reproduce the paper's tables; `sft/train_sft.py` accepts `SFT_PUSH_TO_HUB=0` for runs that must not touch the Hugging Face Hub.
