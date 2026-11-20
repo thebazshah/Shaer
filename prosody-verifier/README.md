@@ -33,8 +33,12 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | `validate_verifier.py` | validation on human poems (positives) and broken copies (negatives), across thresholds |
 | `compare_bilstm.py` | bayt-by-bayt agreement with the Shaer evaluation's BiLSTM classifier |
 | `m3_rescore.py` | M3: strict re-scoring of every baseline (score / control / summarize), resumable and version-pinned |
+| `m4_search.py` | M4: the hemistich search (candidate checks against the poem so far, the search loop, best-of-N selection); no GPU needed |
+| `m4_decode.py` | M4 on the GPU: whole poems (I0/I1) or the hemistich search (I2) with the released adapter; `selfcheck` mode |
+| `m4_report.py` | M4 summary: best-of-N against the search at equal compute, independent views, quality, integrity checks |
+| `m4_replay.py` | M4 validation without a GPU: the search on real lines, scored by the full M3 pipeline |
 | `tests/` | `python -m pytest prosody-verifier/tests -q` |
-| `validation/` | written reports: the rule-table cross-check, the M1 validation and the M3 validation |
+| `validation/` | written reports: the rule-table cross-check, the M1, M3 and M4 validations |
 
 ## Milestones
 
@@ -44,7 +48,7 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | M1 | The verifier and its validation | done (see `validation/M1_report.md`) |
 | M2 | Expert-checked gold set; sign-off of the rule tables | needs a prosody expert |
 | M3 | Strict re-scoring of the baselines with the verifier | done for the reference and E0 (`validation/M3_report.md`); E1–E3 are scored on Colab with the same code |
-| M4 | Verifier-guided decoding vs best-of-N at equal compute | |
+| M4 | Verifier-guided decoding vs best-of-N at equal compute | code and local validation in `validation/M4_report.md`; the runs need a GPU on Colab |
 
 ## Standing rules
 

@@ -292,3 +292,21 @@ def test_tadwir_with_the_split_word_written_whole_in_the_sadr():
     assert bv.sadr.match.pattern.endswith("0")
     bv, _, _ = v.bayt("قِفَا نَبْكِ مِنْ ذِكْرَى حَبِيبٍ", "وَمَنْزِلِ بِسِقْطِ اللِّوَى بَيْنَ الدَّخُولِ فَحَوْمَلِ", "tawil", "tam")
     assert not bv.ok and not bv.tadwir
+
+
+def test_tadwir_obeys_the_margin():
+    """Found by M4 through the wrong-meter control of M3: with the written vowels ignored, a kāmil bayt could pass as
+    ṭawīl because the connected reading of its two hemistichs (cost 5.3) was accepted without comparing it with the
+    ordinary reading of the hemistichs (cost 1.0). The connected reading must now be within the margin as well."""
+    from prosody.lexicon import Lexicon
+    lex = Lexicon.load(str(Path(__file__).resolve().parents[1] / "data" / "lexicon_train.json.gz"))
+    v = Verifier(lex, ignore_diacritics=True, diagnose=False)
+    s, a = "كَم قُلتَ لَستُ بِعائِدٍ في سَوأَةٍ", "وَنَذَرتَ فيها ثُمَّ صِرتَ تَعودُ"
+    bv, _, _ = v.bayt(s, a, "tawil", "tam")
+    assert not bv.ok and bv.path == "tadwir" and bv.tadwir_cost - bv.tadwir_rival > v.margin
+    assert "implausible" in bv.reason
+    assert v.bayt(s, a, "kamil", "tam")[0].ok                          # its own meter
+    wide = Verifier(lex, ignore_diacritics=True, diagnose=False, margin=99.0)
+    assert wide.bayt(s, a, "tawil", "tam")[0].ok                       # no margin: the connected reading is accepted
+    bv, _, _ = Verifier(lex).bayt("ربما تجزع النفوس من الامر", "له فرجة كحل العقال", "khafif", "tam")
+    assert bv.ok and bv.tadwir and bv.tadwir_cost - bv.tadwir_rival <= 1.5

@@ -36,6 +36,9 @@ CASES = [
     ("هجرانيَ الجامحُ مَن لَم يَكُن\nيدري بما في القلب من شجن", "السريع", "تام"),
     ("وَجَدِّيَ رَسولُ اللَهِ أَفضَلُ مَن مَشى\nوَأَكرَمُ مَن يُرجى إِذا الدَهرُ أَعضَلا", "الطويل", "تام"),
     ("لنا مغنٍّ ان شدا\nتدفننا ثلوجهُ", "الرجز", "تام"),
+    # a kāmil bayt judged as ṭawīl: with the written vowels ignored only a connected (tadwīr) reading fits, at a cost that
+    # the margin rejects at 1.5 and accepts with no margin
+    ("كَم قُلتَ لَستُ بِعائِدٍ في سَوأَةٍ\nوَنَذَرتَ فيها ثُمَّ صِرتَ تَعودُ", "الطويل", "تام"),
 ]
 
 

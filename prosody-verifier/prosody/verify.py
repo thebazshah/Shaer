@@ -6,7 +6,9 @@ For a requested meter and form the verifier answers, for every bayt and for the 
                exists, it costs at most `max_cost`, and it is not much less plausible than the best analysis in any meter
                (`margin`), so a line is not forced into the meter through an implausible reading.
                The ʿarūḍ / ḍarb pairing of each bayt must be allowed by the form's table; in the first bayt the ʿarūḍ may
-               take the ḍarb's form (taṣrīʿ). A bayt whose word is split across the two hemistichs (tadwīr) is scanned whole.
+               take the ḍarb's form (taṣrīʿ). A bayt whose word is split across the two hemistichs (tadwīr) is scanned whole;
+               the margin applies there too: the connected reading may cost at most `margin` more than the most plausible
+               readings of the two hemistichs as ordinary lines of any meter.
   consistency  the ḍarb form, and the ʿarūḍ form outside the opening bayt, must be the same in every bayt (an ʿilla, once
                used, is binding); zihāfāt may vary.
   rhyme        qafiya.analyse: rawī, majrā, ridf, taʾsīs, waṣl, muṭlaqa/muqayyada, īṭāʾ, refrain.
@@ -60,6 +62,8 @@ class BaytVerdict:
     tadwir: bool = False
     reason: str = ""
     path: str = ""          # how the bayt was resolved: pair (a permitted ʿarūḍ/ḍarb pair), tadwir, no_pair, none
+    tadwir_cost: float | None = None    # path tadwir: cost of the connected reading, and of its rival (the two hemistichs
+    tadwir_rival: float | None = None   # read separately, in any meter); accepted when cost - rival <= margin
 
 
 @dataclass
@@ -224,9 +228,18 @@ class Verifier:
             return BaytVerdict(0, sv, av, False, sc[0].end, ac[0].end, False, False, reason, "no_pair"), sc, ac
         joined = self._tadwir(sadr, ajuz, meter, form)
         if joined is not None:
-            sv2 = HemistichVerdict(sadr, True, joined[0], sbest, "")
-            av2 = HemistichVerdict(ajuz, True, joined[1], abest, "")
-            return BaytVerdict(0, sv2, av2, True, joined[0].end, joined[1].end, False, True, "tadwīr", "tadwir"), [joined[0]], [joined[1]]
+            # the rival of a connected reading: the two hemistichs read as ordinary lines, each in its likeliest meter
+            # (0 for a hemistich that scans in none). Without this check a letters-only line could be read as the end of
+            # one hemistich glued to the start of the other through an implausible reading, e.g. a ṭawīl ʿajuz after a
+            # kāmil sadr.
+            cost = joined[0].cost
+            rival = (sbest.cost if sbest else 0.0) + (abest.cost if abest else 0.0)
+            ok = cost - rival <= self.margin
+            why = "" if ok else f"tadwīr only through an implausible reading (cost {cost:.1f} vs {rival:.1f})"
+            sv2 = HemistichVerdict(sadr, ok, joined[0], sbest, why)
+            av2 = HemistichVerdict(ajuz, ok, joined[1], abest, why)
+            return (BaytVerdict(0, sv2, av2, ok, joined[0].end, joined[1].end, False, True, "tadwīr" if ok else why, "tadwir",
+                                cost, rival), [joined[0]], [joined[1]])
         reason = "; ".join(x for x in (sv.reason and "sadr: " + sv.reason, av.reason and "ʿajuz: " + av.reason) if x)
         return BaytVerdict(0, sv, av, False, "", "", False, False, reason, "none"), sc, ac
 

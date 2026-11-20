@@ -372,6 +372,161 @@ def m3_report(pv: PVConfig, reps: int = 1000) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------------------------- M4
+# The development sweep (eval split, a seeded subset) and the final test runs. Run names encode the condition:
+#   i1_n<N>          N whole poems per prompt (I0 = the first sample, I1 = best-of-n for n = 2, 4, ... N)
+#   i2_k<k>_r<R>     the hemistich search with k candidates per round and up to R rounds (suffix _b: checked in binding mode)
+M4_DEV_SUBSET = 400
+M4_DEV_SAMPLES = 16
+M4_DEV_SEARCH = ((1, 4), (1, 8), (4, 1), (4, 2), (8, 1), (4, 2, "binding"))   # (k, R[, check mode])
+
+
+def m4_dir(pv: PVConfig, split: str) -> pathlib.Path:
+    d = pv.root / "m4" / split
+    (d / "runs").mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _need_gpu(what: str) -> None:
+    try:
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        out = ""
+    if "GPU" not in out:
+        raise RuntimeError(f"{what} needs a GPU runtime (A100 preferred, L4 works): Runtime > Change runtime type")
+
+
+def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samples: int = 1, k: int = 4,
+                rounds: int = 1, batch_size: str = "auto", extra: list | None = None, folder: str = "") -> pathlib.Path:
+    """One M4 generation run with the released Shaer adapter on Yehia-7B-preview (resumable: finished poems are on Drive)."""
+    cfg = pv.sc_cfg
+    if not cfg.paper_flow:
+        raise RuntimeError("M4 uses the released Shaer adapter, which was trained on Yehia-7B-preview: set BASE_MODEL to "
+                           "Navid-AI/Yehia-7B-preview in the configuration cell (it needs the gated-model access and HF_TOKEN)")
+    _need_env(pv)
+    _need_gpu("M4 generation")
+    out = m4_dir(pv, folder or split) / "runs" / run / "generations.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    mode = "sample" if run.startswith("i1") else "search"
+    args = [HERE / "m4_decode.py", mode, "--split", split, "--subset", str(subset), "--out", out,
+            "--base-model", cfg.base_model, "--batch-size", str(batch_size)]
+    args += ["--num-samples", str(num_samples)] if mode == "sample" else ["--k", str(k), "--rounds", str(rounds)]
+    if mode == "search" and run.endswith("_b"):
+        args += ["--check", "binding"]
+    pv.run([*args, *(extra or [])], label=f"M4 {split} {run}")
+    return out
+
+
+def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMPLES, search=M4_DEV_SEARCH,
+           only: tuple | None = None) -> None:
+    """The development sweep on the eval split: one sample run (I0 and best-of-2 ... best-of-`samples`) and the search
+    configurations, all on the same seeded subset of prompts. Resumable; `only=("i2_k4_r1",)` runs some of them."""
+    runs = [(f"i1_n{samples}", dict(num_samples=samples))]
+    for k, r, *check in search:
+        runs.append((f"i2_k{k}_r{r}" + ("_b" if check and check[0] == "binding" else ""), dict(k=k, rounds=r)))
+    t0 = sc._start(f"M4 development sweep: {len(runs)} runs on {subset} eval prompts",
+                   "the sample run is the long one (about 2 h on an A100 for 16 samples per prompt); each search run "
+                   "takes minutes to tens of minutes; every finished poem is on Drive")
+    for name, kw in runs:
+        if only and name not in only:
+            continue
+        m4_generate(pv, "eval", name, subset=subset, **kw)
+    sc._finish(t0, "M4 development sweep")
+
+
+def m4_test(pv: PVConfig, k: int, rounds: int, samples: int) -> None:
+    """The final runs on the full test split (3,481 prompts): the chosen search configuration and best-of-`samples`.
+    Choose them on the development sweep first (m4_report(pvc, "eval") prints the choice its rule makes)."""
+    m4_generate(pv, "test", f"i2_k{k}_r{rounds}", k=k, rounds=rounds)
+    m4_generate(pv, "test", f"i1_n{samples}", num_samples=samples)
+
+
+def m4_selfcheck(pv: PVConfig, prompts: int = 8) -> dict:
+    """Before the long runs (a few minutes on the GPU): on the real model with the adapter, the shared-cache logits against
+    a full forward pass, and greedy decoding one hemistich at a time against one-shot greedy decoding (they must agree;
+    bf16 can make a rare greedy tie break differently). Uses a few eval prompts."""
+    cfg = pv.sc_cfg
+    _need_env(pv)
+    _need_gpu("the M4 self-check")
+    out = m4_dir(pv, "eval") / "selfcheck.json"
+    pv.run([HERE / "m4_decode.py", "selfcheck", "--split", "eval", "--subset", str(prompts), "--out", out,
+            "--base-model", cfg.base_model], label="M4 self-check")
+    res = json.loads(out.read_text())
+    ok = res["argmax_agreement_pct"] == 100.0 and res["greedy_identical_pct"] >= 75.0 and res["logit_max_abs_diff"] < 0.5
+    print("self-check:", "PASSED" if ok else "FAILED: do not start the long runs; send me selfcheck.json", res)
+    return res
+
+
+def m4_check_sampling(pv: PVConfig, subset: int = 300) -> None:
+    """Optional: the sample mode of m4_decode.py is the paper's decoding. One sample on a seeded subset of test prompts,
+    compared with the baseline's E1 poems (generate_shaer_test.py) on the same prompts: the official metrics must agree
+    within the sampling noise shown."""
+    e1 = pathlib.Path(pv.drive_base, "shaer-repro-yehia", "runs", "e1", "scored.jsonl")
+    if not e1.exists():
+        raise RuntimeError(f"no E1 poems at {e1}: run E1 in the baseline notebook first")
+    d = m4_dir(pv, "samplecheck")
+    gens = m4_generate(pv, "test", "i1_n1", subset=subset, num_samples=1, folder="samplecheck")
+    scored = gens.parent / "scored.jsonl"
+    _score(pv, gens, scored, "scoring the sample-mode poems")
+    pv.run([HERE / "m4_report.py", "compare", "--a", scored, "--b", e1, "--out", d / "compare.json"],
+           label="sample mode vs E1", quiet=False)
+
+
+def m4_test_from_choice(pv: PVConfig) -> None:
+    """The final test runs chosen by the pre-registered rule on the development sweep (m4/eval/m4_summary.json)."""
+    p = m4_dir(pv, "eval") / "m4_summary.json"
+    if not p.exists():
+        raise RuntimeError("summarise the development sweep first: pv.m4_score(pvc, 'eval'); pv.m4_report(pvc, 'eval')")
+    ch = json.loads(p.read_text()).get("choice")
+    if not ch:
+        raise RuntimeError("the development summary made no choice (no search run within the budget of best-of-4)")
+    print(f"test runs: search k={ch['k']} R={ch['rounds']} and best-of-{ch['best_of_n']}")
+    m4_test(pv, ch["k"], ch["rounds"], ch["best_of_n"])
+
+
+def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
+    """Score every M4 run of a split: the repository's scorer (BiLSTM meter, line count; CPU) and the M3 verifier in both
+    reading modes. A CPU runtime is enough (and cheaper); finished rows are kept, so it can run while generation goes on."""
+    _need_env(pv)
+    d = m4_dir(pv, split)
+    extra = ["--workers", str(workers)] if workers else []
+    for run in sorted(p for p in (d / "runs").iterdir() if (p / "generations.jsonl").exists()):
+        gens = run / "generations.jsonl"
+        meta = run / "generations.meta.json"
+        finished = meta.exists() and json.loads(meta.read_text()).get("runs")
+        if not finished:
+            print(f"{run.name}: generation has not finished yet; scoring what is there")
+        scored = run / "scored.jsonl"
+        if _lines(scored) < _lines(gens):
+            scored.unlink(missing_ok=True)          # the scorer rewrites its file: score the whole run again
+            _score(pv, gens, scored, f"scoring {run.name}")
+        pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", run.name, "--out-dir", d / "m3", *extra],
+               label=f"M4 verifier {run.name}")
+
+
+def m4_report(pv: PVConfig, split: str, reps: int = 1000) -> str:
+    """Summarise the M4 runs of a split (m4/<split>/m4_report.md and m4_summary.json on Drive)."""
+    _need_env(pv)
+    d = m4_dir(pv, split)
+    train = pv.root / "m1" / "splits" / "train.jsonl"
+    args = [HERE / "m4_report.py", "summarize", "--dir", d, "--reps", str(reps)]
+    if train.exists():
+        args += ["--train", train]
+    pv.run(args, label=f"M4 summary {split}", quiet=True)
+    text = (d / "m4_report.md").read_text(encoding="utf-8")
+    summary = json.loads((d / "m4_summary.json").read_text(encoding="utf-8"))
+    bad = {k: v for k, v in summary.get("checks", {}).items() if any(x not in (0, None) for x in v.values())}
+    print("integrity checks:", "all 0" if not bad else f"FAILED for {', '.join(bad)} (see the last table)")
+    if split == "eval" and summary.get("choice"):
+        print("pre-registered choice for the test runs:", summary["choice"])
+    try:
+        from IPython.display import Markdown, display
+        display(Markdown(text))
+    except ImportError:
+        print(text)
+    return text
+
+
 def verify_poem(text: str, base_meter: str, form: str = "تام", requested_lines: int | None = None,
                 ignore_diacritics: bool = False) -> dict:
     """Verify one poem in this Python process (the verifier needs only the standard library) and print a readable report.

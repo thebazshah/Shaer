@@ -44,7 +44,7 @@ from prosody.meters import METERS, NAME_TO_KEY, SHAER_FORM_TO_KEY, shaer_target 
 from prosody.verify import Verifier  # noqa: E402
 from pv_text import rhyme_signatures, split_poem_lines  # noqa: E402
 
-RECORD_VERSION = 1
+RECORD_VERSION = 2          # 2: tadwīr entries carry their cost and rival (the margin applies to tadwīr)
 MODES = ("letters", "binding")
 MARGINS = (1.0, 1.5, 3.0, math.inf)
 DEFAULT_MARGIN = _verify.MARGIN
@@ -71,10 +71,11 @@ def code_meta(lexicon: Path, mode: str) -> dict:
 def bayt_ok(entry: list, margin: float) -> bool:
     """Meter verdict of one bayt at any margin, from its record entry [path, sadr cost, sadr best, ʿajuz cost, ʿajuz best].
     Mirrors Verifier.bayt: a permitted pair is accepted when both chosen analyses cost at most MAX_COST and at most
-    `margin` more than the best rival for their position; tadwīr does not use the margin; no analysis never passes."""
+    `margin` more than the best rival for their position; a tadwīr reading when it costs at most MAX_COST and at most
+    `margin` more than the two hemistichs read separately ([tadwir, cost, rival, None, None]); no analysis never passes."""
     path, sc, sb, ac, ab = entry
     if path == "tadwir":
-        return True
+        return sc <= MAX_COST and sc - sb <= margin
     if path != "pair":
         return False
     return sc <= MAX_COST and ac <= MAX_COST and sc - sb <= margin and ac - ab <= margin
@@ -92,6 +93,8 @@ def _entry(bv) -> list:
     if bv.path == "pair":
         s, a = bv.sadr, bv.ajuz
         return ["pair", s.match.cost, s.best_any.cost, a.match.cost, a.best_any.cost]
+    if bv.path == "tadwir":
+        return ["tadwir", bv.tadwir_cost, bv.tadwir_rival, None, None]
     return [bv.path or "none", None, None, None, None]
 
 
