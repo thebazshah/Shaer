@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.10.0"
-__updated__ = "2026-11-20 20:53 UTC"
+__version__ = "1.11.0"
+__updated__ = "2026-11-20 21:17 UTC"
 
 import collections
 import dataclasses
@@ -167,6 +167,15 @@ def _gpu_stats() -> tuple | None:
         return util, used, total
     except Exception:
         return None
+
+
+def _gpu_name() -> str:
+    """Name of the first GPU ("NVIDIA A100-SXM4-40GB", "NVIDIA L4", ...), or "" without one."""
+    try:
+        return subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True,
+                              timeout=10).stdout.split("\n")[0].strip()
+    except Exception:
+        return ""
 
 
 def _gpu_text(stats: tuple | None) -> str:
@@ -687,7 +696,7 @@ def _training_pid(cfg: Config) -> int | None:
 
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
-                   save_minutes: float | None = 10, background: bool = False, auto_restart: bool = True,
+                   save_minutes: float | str | None = "auto", background: bool = False, auto_restart: bool = True,
                    max_restarts: int = 3, eval_batch_size: int = 8, allow_fresh_start: bool = False) -> None:
     """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
 
@@ -709,13 +718,20 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     the best checkpoint stay on the 200-step schedule, so the results are not affected. Each checkpoint is about 1 GB written to
     Drive and costs some time to write. Only two are kept on Drive: the latest (to resume from) and the best (lowest eval loss so
     far); when the latest is also the best, just one. The previous latest is deleted only after the new one is completely written.
-    save_minutes: also write a resume checkpoint once this many minutes of training have passed since the last checkpoint (default
-    10), independent of GPU speed: on an L4 at ~19 s/step that is about every 32 steps, on an A100 at ~10 s/step about every 60.
-    Like save_steps it only adds resume checkpoints and does not change the results. None or 0 turns it off.
+    save_minutes: also write a resume checkpoint once this many minutes of training have passed since the last checkpoint.
+    "auto" (default): 20 on an A100 / H100 (fast steps; fewer ~1 GB checkpoints for Drive to upload, and the regular 200-step
+    checkpoint comes every ~35 min there anyway), 10 on other GPUs (an L4 at ~27 s/step reaches 200 steps only every ~90 min).
+    Like save_steps it only adds resume checkpoints and does not change the results. A number sets it; None or 0 turns it off.
+    When the foreground run stops (stop button, finished, or failed), Drive is flushed (sc.flush_drive) so the newest checkpoint is
+    uploaded before the session can end, then mounted again.
     """
     if not 1 <= int(save_steps) <= 200:
         raise ValueError("save_steps must be between 1 and 200: the regular 200-step checkpoints (the paper's evaluation schedule) "
                          "are always written, and Hugging Face requires the regular save interval to be a multiple of the evaluation interval")
+    if save_minutes == "auto":
+        gpu = _gpu_name()
+        save_minutes = 20 if any(k in gpu.upper() for k in ("A100", "H100", "H200")) else 10
+        print(f"  GPU {gpu or 'unknown'}: resume checkpoint every {save_minutes} minutes (save_minutes='auto')")
     if save_minutes is not None and float(save_minutes) < 0:
         raise ValueError("save_minutes must be positive (or None / 0 to turn the time-based checkpoints off)")
     if _training_pid(cfg):
@@ -833,12 +849,15 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                 else:
                     raise
     except KeyboardInterrupt:
-        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.\n"
-              "  Before ENDING or SWITCHING this Colab session, run sc.flush_drive() (the cell after 7b) so the newest checkpoint finishes uploading to\n"
-              "  Drive; otherwise the next session may not find it.", flush=True)
-        return
+        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
+        stopped = True
+    else:
+        stopped = False
     finally:
         _pid_file(cfg).unlink(missing_ok=True)
+        flush_drive()                            # stopped, finished or failed: get the newest checkpoint onto Drive now
+    if stopped:
+        return
     print("✔ training finished: run the generation step (7c)" if (cfg.run_dir / "run_summary.json").exists()
           else "training process exited", flush=True)
     _finish(t0, "training")
@@ -1004,13 +1023,30 @@ def checkpoint_report(cfg: Config) -> None:
         pass
 
 
-def flush_drive() -> None:
-    """Upload everything still waiting in Colab's Drive cache (checkpoints are ~1 GB each), then unmount Drive. Run this before you
-    end or switch a Colab session; otherwise the newest checkpoint may never reach Drive and the next session cannot resume from it."""
-    from google.colab import drive
-    t0 = _start("uploading pending files to Google Drive and unmounting it", "seconds to a few minutes")
-    drive.flush_and_unmount()
-    _finish(t0, "Drive flushed and unmounted: it is now safe to end this session (run section 1 again to keep working here)")
+def flush_drive(remount: bool = True) -> bool:
+    """Upload everything still waiting in Colab's Drive cache (checkpoints are ~1 GB each), then mount Drive again (remount=True).
+
+    Run before you end or switch a Colab session; otherwise the newest checkpoint may never reach Drive and the next session cannot
+    resume from it. start_training does this by itself when training stops, finishes or fails. Returns True when the flush finished.
+    """
+    try:
+        from google.colab import drive
+    except ImportError:
+        print("  (not on Colab: nothing to flush)")
+        return False
+    t0 = _start("uploading pending files to Google Drive (do not end the session until this finishes)", "seconds to several minutes")
+    try:
+        drive.flush_and_unmount()
+    except KeyboardInterrupt:
+        print("⚠ Drive flush interrupted: the newest checkpoint may not be on Drive yet. Run sc.flush_drive() before ending the session.")
+        return False
+    _finish(t0, "Drive flushed: everything is uploaded, it is safe to end this session")
+    if remount:
+        try:
+            drive.mount("/content/drive")
+        except Exception as exc:                 # e.g. the authorisation prompt was not answered
+            print(f"  Drive is unmounted ({exc.__class__.__name__}); run section 1 again before using Drive in this session")
+    return True
 
 
 def training_status(cfg: Config) -> None:
