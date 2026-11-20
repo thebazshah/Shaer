@@ -19,10 +19,12 @@ Flow selection (`make_config`):
 """
 from __future__ import annotations
 
-# Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
-# (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.13.0"
-__updated__ = "2026-11-20 22:17 UTC"
+# __version__ / __updated__: bump on every change to this module (section 2 prints them, so you can see which code runs).
+# NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb that works with this code. Raise it (and set the notebook's title line
+# and NOTEBOOK_VERSION to the same value) only when the notebook's cells change; a code-only change needs no new notebook.
+__version__ = "1.13.1"
+__updated__ = "2026-11-20 22:19 UTC"
+NOTEBOOK_REQUIRED = "1.13.0"
 
 import collections
 import dataclasses
@@ -462,12 +464,16 @@ def code_version(cfg: Config) -> str:
 
 
 def check_version(notebook_version: str) -> None:
-    """Warn loudly when the notebook copy and the downloaded code are not the same version."""
-    if notebook_version == __version__:
-        print(f"✔ notebook v{notebook_version} matches the code v{__version__} (updated {__updated__})")
+    """Say whether this notebook copy works with the downloaded code. Only the notebook's cells need a newer copy: code changes
+    arrive with section 2 (git pull + reload) without reopening the notebook."""
+    def key(v: str) -> tuple:
+        return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+    if key(notebook_version) >= key(NOTEBOOK_REQUIRED):
+        print(f"✔ notebook v{notebook_version} works with the code v{__version__} (updated {__updated__}); no need to reopen it")
     else:
-        print(f"⚠ VERSION MISMATCH: this notebook is v{notebook_version}, the downloaded code is v{__version__} (updated {__updated__}).\n"
-              "  Open the latest reproduce_shaer_a100.ipynb from GitHub (branch dev), or re-run this cell if the code is older.")
+        print(f"⚠ NOTEBOOK TOO OLD: this notebook is v{notebook_version}, the code v{__version__} needs notebook v{NOTEBOOK_REQUIRED} "
+              "or newer (its cells changed).\n  Reopen it: File > Open notebook > GitHub > thebazshah/Shaer, branch dev, "
+              "colab/reproduce_shaer_a100.ipynb (or the link in the README). Checkpoints on Drive are kept.")
 
 
 def _colab_runtime_info() -> list[str]:

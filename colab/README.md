@@ -19,6 +19,9 @@ It is not a full end-to-end reproduction notebook for training.
 
 ## Reproducing the paper on a Colab A100 (branch `dev` of the fork)
 
+- Open the latest notebook in Colab: https://colab.research.google.com/github/thebazshah/Shaer/blob/dev/colab/reproduce_shaer_a100.ipynb
+  (always the newest version of branch `dev`). Code changes reach an open notebook through section 2 (git pull + reload, printed
+  as `code: v…`); reopen the notebook only when section 2 says `NOTEBOOK TOO OLD`.
 - [reproduce_shaer_a100.ipynb](./reproduce_shaer_a100.ipynb) runs experiments E0-E3 and saves everything to Google Drive:
   E0 re-scores the released generations, E1 uses the released adapter, E2 the untuned base model, E3 re-trains.
 - The notebook is plain Python: each cell calls a function of [`shaer_colab.py`](./shaer_colab.py), which runs the repository's scripts
