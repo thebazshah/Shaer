@@ -146,8 +146,8 @@ def _require_drive(path) -> None:
     """
     if str(path).startswith("/content/drive") and not os.path.ismount("/content/drive"):
         raise RuntimeError("Google Drive is NOT mounted (sc.flush_drive() or a dropped connection unmounts it). Run section 1 "
-                           "(drive.mount) again, then section 2. If drive.mount says the mountpoint already contains files, use "
-                           "Runtime > Restart session and run sections 1-3 again.")
+                           "(drive.mount) again, then section 2. If drive.mount says the mountpoint already contains files (written while "
+                           "Drive was unmounted), use Runtime > Disconnect and delete runtime, then run sections 1-3 on the new one.")
 
 
 # ------------------------------------------------------------------------------------------------ small helpers
