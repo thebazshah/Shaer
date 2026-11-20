@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.11.0"
-__updated__ = "2026-11-20 21:17 UTC"
+__version__ = "1.12.0"
+__updated__ = "2026-11-20 22:12 UTC"
 
 import collections
 import dataclasses
@@ -131,10 +131,23 @@ def make_config(*, base_model: str, drive_base: str = "/content/drive/MyDrive", 
     cfg = Config(base_model=base_model, paper_flow=paper_flow, tag=tag, run_e1=run_e1, force_e1=bool(force_e1), run_name=run_name,
                  num_samples=int(num_samples), gen_batch_size=str(gen_batch_size), stall_minutes=float(stall_minutes), openrouter_key=openrouter_key,
                  drive_root=str(pathlib.Path(drive_base, f"shaer-repro-{tag}")), repo_url=repo_url, branch=branch, hf_token=hf_token)
+    _require_drive(cfg.drive_root)
     for sub in (cfg.runs, cfg.logs, cfg.sft_outputs):
         sub.mkdir(parents=True, exist_ok=True)
     print("base model:", base_model, "| Drive folder:", cfg.drive_root, f"| a silent, idle step is stopped after {stall_minutes} min")
     return cfg
+
+
+def _require_drive(path) -> None:
+    """Refuse to work on a Drive path while Google Drive is not mounted.
+
+    Unmounted, /content/drive is an ordinary empty folder on the VM: writing there silently puts checkpoints on local disk (lost
+    with the session), and a training run finds none of the checkpoints that are on Drive and starts again at step 0.
+    """
+    if str(path).startswith("/content/drive") and not os.path.ismount("/content/drive"):
+        raise RuntimeError("Google Drive is NOT mounted (sc.flush_drive() or a dropped connection unmounts it). Run section 1 "
+                           "(drive.mount) again, then section 2. If drive.mount says the mountpoint already contains files, use "
+                           "Runtime > Restart session and run sections 1-3 again.")
 
 
 # ------------------------------------------------------------------------------------------------ small helpers
@@ -427,6 +440,7 @@ def _watch_process(proc, lines, *, cmd, label, quiet, check, tail, drop, stall_a
 # ------------------------------------------------------------------------------------------------ code + environment
 def sync_repo(cfg: Config) -> None:
     """Point the repository's output folders at Google Drive, so checkpoints and results survive a recycled runtime."""
+    _require_drive(cfg.drive_root)
     repo = pathlib.Path(cfg.repo_dir)
     for link, target in ((repo / "sft" / "outputs", cfg.sft_outputs), (repo / "runs", cfg.runs)):
         assert str(link).startswith(str(repo) + os.sep), link          # never touch anything outside the repository folder
@@ -697,7 +711,7 @@ def _training_pid(cfg: Config) -> int | None:
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
                    save_minutes: float | str | None = "auto", background: bool = False, auto_restart: bool = True,
-                   max_restarts: int = 3, eval_batch_size: int = 8, allow_fresh_start: bool = False) -> None:
+                   max_restarts: int = 3, eval_batch_size: int | str = "auto", allow_fresh_start: bool = False) -> None:
     """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
 
     The output (step bar with ETA, loss lines, evaluation) streams into the cell and is also appended to the log on Drive. While the
@@ -708,7 +722,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     background=True: the old behaviour, a detached process followed with sc.watch_training(cfg).
     allow_fresh_start: this run already recorded training steps but has no complete checkpoint to resume from, it refuses to start
     from step 0 (and prints sc.checkpoint_report) unless this is True.
-    eval_batch_size: rows per evaluation batch (default 8; the paper's configuration uses 1). Evaluation over the 3,481 eval rows
+    eval_batch_size: rows per evaluation batch; "auto" (default) = 32 on a GPU with 70 GB or more (A100/H100 80 GB), 16 with 35 GB
+    or more, else 8 (the paper's configuration uses 1). Evaluation over the 3,481 eval rows
     runs every 200 steps and took ~31 min on an L4 at batch size 1. Training is not affected; the reported eval loss shifts slightly,
     because a batch's loss is averaged over all its tokens instead of per row. After an out-of-memory error during evaluation the
     run restarts with half the batch size.
@@ -742,6 +757,7 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         print(f"run '{cfg.run_name}' already finished (run_summary.json exists): go to the generation step. "
               "Use a new RUN_NAME to train again.")
         return
+    _require_drive(cfg.drive_root)              # unmounted, the run would see no checkpoint and start at step 0 on local disk
     complete = [s for s, _, p in _checkpoints(cfg) if not p]
     logged = _last_logged_step(cfg)
     if not complete and logged > 0 and not allow_fresh_start:
@@ -766,6 +782,10 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         print("  gradient checkpointing off: faster steps, more GPU memory"
               + ("" if background else " (falls back to on by itself if the GPU runs out of memory)"))
     env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")   # less fragmentation, so the larger activations fit
+    if eval_batch_size == "auto":
+        stats = _gpu_stats()
+        total_gb = stats[2] / 1024 if stats else 0
+        eval_batch_size = 32 if total_gb >= 70 else 16 if total_gb >= 35 else 8
     if int(eval_batch_size) < 1:
         raise ValueError("eval_batch_size must be at least 1")
     env["SFT_PER_DEVICE_EVAL_BATCH_SIZE"] = str(int(eval_batch_size))
@@ -998,6 +1018,7 @@ def _last_logged_step(cfg: Config) -> int:
 def checkpoint_report(cfg: Config) -> None:
     """What a restart would resume from: every checkpoint folder on Drive with its size and whether it is complete, the last step
     recorded in metrics.jsonl, the last resume decision, and the free space on Drive."""
+    _require_drive(cfg.drive_root)
     print(f"run folder: {cfg.run_dir}  ({'exists' if cfg.run_dir.is_dir() else 'DOES NOT EXIST: check RUN_NAME, BASE_MODEL and the Drive account'})")
     if cfg.run_dir.parent.is_dir():
         others = sorted(p.name for p in cfg.run_dir.parent.iterdir() if p.is_dir() and p.name != cfg.run_name)
