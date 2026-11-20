@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.9.0"
-__updated__ = "2026-11-19 07:46 UTC"
+__version__ = "1.10.0"
+__updated__ = "2026-11-20 20:53 UTC"
 
 import collections
 import dataclasses
@@ -688,7 +688,7 @@ def _training_pid(cfg: Config) -> int | None:
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
                    save_minutes: float | None = 10, background: bool = False, auto_restart: bool = True,
-                   max_restarts: int = 3, eval_batch_size: int = 8) -> None:
+                   max_restarts: int = 3, eval_batch_size: int = 8, allow_fresh_start: bool = False) -> None:
     """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
 
     The output (step bar with ETA, loss lines, evaluation) streams into the cell and is also appended to the log on Drive. While the
@@ -697,6 +697,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     resumes from the newest complete one. If the run is silent AND idle (GPU and CPU) for `cfg.stall_minutes`, it is stopped and,
     with `auto_restart`, restarted from the last checkpoint (up to `max_restarts` times).
     background=True: the old behaviour, a detached process followed with sc.watch_training(cfg).
+    allow_fresh_start: this run already recorded training steps but has no complete checkpoint to resume from, it refuses to start
+    from step 0 (and prints sc.checkpoint_report) unless this is True.
     eval_batch_size: rows per evaluation batch (default 8; the paper's configuration uses 1). Evaluation over the 3,481 eval rows
     runs every 200 steps and took ~31 min on an L4 at batch size 1. Training is not affected; the reported eval loss shifts slightly,
     because a batch's loss is averaged over all its tokens instead of per row. After an out-of-memory error during evaluation the
@@ -724,6 +726,20 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
         print(f"run '{cfg.run_name}' already finished (run_summary.json exists): go to the generation step. "
               "Use a new RUN_NAME to train again.")
         return
+    complete = [s for s, _, p in _checkpoints(cfg) if not p]
+    logged = _last_logged_step(cfg)
+    if not complete and logged > 0 and not allow_fresh_start:
+        print(f"✖ NOT STARTING: run '{cfg.run_name}' already trained to step {logged} (metrics.jsonl), but there is no complete checkpoint "
+              "to resume from, so training would start again at step 0.")
+        checkpoint_report(cfg)
+        print("  If the previous session was ended before Drive finished uploading, the checkpoint may be lost. Check the folder above in\n"
+              "  drive.google.com (and its Trash). To start over anyway: sc.start_training(cfg, ..., allow_fresh_start=True), or use a new RUN_NAME.")
+        return
+    if complete:
+        print(f"  resuming from checkpoint-{max(complete)} (last step recorded in metrics.jsonl: {logged})")
+        if logged - max(complete) > 100:
+            print(f"  ⚠ {logged - max(complete)} recorded steps are newer than that checkpoint and will be trained again "
+                  "(a newer checkpoint did not reach Drive); see sc.checkpoint_report(cfg)")
     _warn_if_gpu_shared("training")
     env = cfg.env(SFT_RESUME_MODE="auto")        # resumes from the newest complete checkpoint of this RUN_NAME on Drive
     # keep only the latest and the best checkpoint: with load_best_model_at_end, Hugging Face treats save_total_limit=1 as
@@ -817,7 +833,9 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                 else:
                     raise
     except KeyboardInterrupt:
-        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
+        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.\n"
+              "  Before ENDING or SWITCHING this Colab session, run sc.flush_drive() (the cell after 7b) so the newest checkpoint finishes uploading to\n"
+              "  Drive; otherwise the next session may not find it.", flush=True)
         return
     finally:
         _pid_file(cfg).unlink(missing_ok=True)
@@ -910,6 +928,89 @@ def _render_training(info: dict, alive: bool, finished: bool, gpu: tuple | None,
     if info["log_age"] is not None:
         out.append(f"  log last updated {_fmt(info['log_age'])} ago")
     return "\n".join(out)
+
+
+_CKPT_FILES = ("trainer_state.json", "optimizer.pt", "scheduler.pt")
+
+
+def _checkpoint_problem(path: pathlib.Path) -> str | None:
+    """None when the checkpoint can be resumed from (same test as train_sft.latest_complete_checkpoint_step), else why not."""
+    missing = [n for n in _CKPT_FILES if not (path / n).exists()]
+    if not ((path / "adapter_model.safetensors").exists() or (path / "adapter_model.bin").exists()):
+        missing.append("adapter_model.safetensors")
+    if missing:
+        return "missing " + ", ".join(missing)
+    try:
+        json.loads((path / "trainer_state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "trainer_state.json is truncated"
+    return None
+
+
+def _checkpoints(cfg: Config) -> list[tuple[int, pathlib.Path, str | None]]:
+    if not cfg.run_dir.is_dir():
+        return []
+    found = []
+    for child in cfg.run_dir.iterdir():
+        m = re.fullmatch(r"checkpoint-(\d+)", child.name)
+        if m and child.is_dir():
+            found.append((int(m.group(1)), child, _checkpoint_problem(child)))
+    return sorted(found)
+
+
+def _last_logged_step(cfg: Config) -> int:
+    """Highest training step recorded in metrics.jsonl (0 if none): evidence that this run already made progress."""
+    best = 0
+    path = cfg.run_dir / "metrics.jsonl"
+    if path.exists():
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                if '"global_step"' not in raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if row.get("mode") == "train":
+                    best = max(best, int(row.get("global_step") or 0))
+    return best
+
+
+def checkpoint_report(cfg: Config) -> None:
+    """What a restart would resume from: every checkpoint folder on Drive with its size and whether it is complete, the last step
+    recorded in metrics.jsonl, the last resume decision, and the free space on Drive."""
+    print(f"run folder: {cfg.run_dir}  ({'exists' if cfg.run_dir.is_dir() else 'DOES NOT EXIST: check RUN_NAME, BASE_MODEL and the Drive account'})")
+    if cfg.run_dir.parent.is_dir():
+        others = sorted(p.name for p in cfg.run_dir.parent.iterdir() if p.is_dir() and p.name != cfg.run_name)
+        if others:
+            print("  other runs in the same folder:", others)
+    ckpts = _checkpoints(cfg)
+    if not ckpts:
+        print("  no checkpoint-* folders")
+    for step, path, problem in ckpts:
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        mtime = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(path.stat().st_mtime))
+        print(f"  {path.name:<18} {size / 2**30:5.2f} GB  modified {mtime}  " + ("✔ complete" if not problem else f"✖ {problem}"))
+    complete = [s for s, _, p in ckpts if not p]
+    print(f"  a restart resumes from: {'checkpoint-%d' % max(complete) if complete else 'NOTHING (step 0)'}")
+    print(f"  last training step in metrics.jsonl: {_last_logged_step(cfg)}")
+    decision = cfg.run_dir / "resume_decision.json"
+    if decision.exists():
+        print("  last resume decision:", decision.read_text().strip()[:400])
+    try:
+        usage = shutil.disk_usage(cfg.drive_root)
+        print(f"  Drive: {usage.free / 2**30:.1f} GB free of {usage.total / 2**30:.1f} GB")
+    except OSError:
+        pass
+
+
+def flush_drive() -> None:
+    """Upload everything still waiting in Colab's Drive cache (checkpoints are ~1 GB each), then unmount Drive. Run this before you
+    end or switch a Colab session; otherwise the newest checkpoint may never reach Drive and the next session cannot resume from it."""
+    from google.colab import drive
+    t0 = _start("uploading pending files to Google Drive and unmounting it", "seconds to a few minutes")
+    drive.flush_and_unmount()
+    _finish(t0, "Drive flushed and unmounted: it is now safe to end this session (run section 1 again to keep working here)")
 
 
 def training_status(cfg: Config) -> None:
