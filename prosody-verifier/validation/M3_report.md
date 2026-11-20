@@ -325,3 +325,49 @@ inside decoding, two things matter:
    * `pv.m3_rescore(pvc, limit=200)` gives a quick look.
 3. `pv.m3_report(pvc)` writes `m3_report.md` and `m3_summary.json` in the same folder. Check that the integrity table is
    all 0, and that the reference and E0 rows match [`M3_results_local.md`](M3_results_local.md).
+
+## 11. Later change: the margin now applies to tadwīr (found in M4)
+
+M4's validation found a verifier error. In letters mode, the connected reading of a bayt (tadwīr) was accepted without
+the margin rule, so a bayt in one meter could pass as another. The fix and its analysis are in `M4_report.md`
+section 3.
+
+**What changed.**
+* `prosody/verify.py` (commit `e26e236`): the connected reading may cost at most the margin more than the two hemistichs
+  read as ordinary lines, each in its likeliest meter.
+* M3 records now carry the tadwīr cost and its rival (record version 2), so margins can still be recomputed exactly.
+  Records on Drive made with the earlier code are set aside and scored again by `pv.m3_rescore`.
+
+**The re-run.** The full local run was repeated with this code. Integrity checks are all 0, the two summaries are
+byte-identical, and the control inputs are byte-identical to the earlier runs. The tables in
+[`M3_results_local.md`](M3_results_local.md) are now those of this run. Sections 2–10 above keep the numbers of the
+earlier code; this is what changed (letters, margin 1.5 unless stated):
+
+| | before | after |
+|---|---:|---:|
+| reference: strictly valid | 55.33% | 54.93% |
+| reference: meter, every bayt | 57.51% | 57.08% |
+| reference: bayts on meter | 82.45% | 82.09% |
+| E0: strictly valid | 9.25% | 8.99% |
+| E0: meter, every bayt | 15.94% | 15.51% |
+| E0: bayts on meter | 54.64% | 53.78% |
+| E0: rhyme passes | 38.12% | 38.18% |
+| E0 − reference, strictly valid (pp) | −46.1 [−47.8, −44.3] | −45.9 [−47.7, −44.2] |
+| wrong-meter control: poems on meter | 0.09% (3 poems) | 0.00% |
+| wrong-meter control: bayts on meter | 0.95% | 0.57% |
+| mixed-rhyme control: bayts on meter (paired vs reference: −0.3 pp before) | 82.07% | 81.64% |
+| binding mode, E0 / reference strictly valid | 5.08% / 52.86% | 5.06% / 52.48% |
+| any margin = none (every number) | | unchanged |
+
+Notes on the table:
+* **Margin none.** These numbers are unchanged, as they must be: with no margin every tadwīr reading is still
+  accepted.
+* **Rhyme.** It moves only where a bayt's last word is now read through its ordinary scansion instead of the
+  connected one (2 E0 poems, both now passing).
+* **The M1 cross-check (section 3).** It now reads E0 letters 53.79 / 54.81 / 25.82 and reference letters
+  82.13 / 85.83 / 5.15, because M1's numbers were made with the earlier code. The no-reading column is unchanged.
+* **The M1 test-split validation** was re-run as well: 52.93% of poems with every bayt on meter (was 53.36%). The
+  rhyme rate (91.79%), the planted breaks (100.0%) and every hemistich-level number are unchanged.
+
+None of this changes a conclusion of sections 4–7. The predictions keep their verdicts, except that the human strict
+validity (54.93%) is now inside its predicted range of 45–55%.
