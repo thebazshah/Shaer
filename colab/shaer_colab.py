@@ -21,8 +21,8 @@ from __future__ import annotations
 
 # Bump both whenever this module or the notebook changes, and set the same values at the top of reproduce_shaer_a100.ipynb
 # (title line and NOTEBOOK_VERSION in section 1): the notebook compares them and warns when they differ.
-__version__ = "1.12.0"
-__updated__ = "2026-11-20 22:12 UTC"
+__version__ = "1.13.0"
+__updated__ = "2026-11-20 22:17 UTC"
 
 import collections
 import dataclasses
