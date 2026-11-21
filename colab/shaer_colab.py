@@ -19,15 +19,17 @@ Flow selection (`make_config`):
 """
 from __future__ import annotations
 
-# __version__ / __updated__: bump on every change to this module (section 2 prints them, so you can see which code runs).
-# NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb that works with this code. Raise it (and set the notebook's title line
-# and NOTEBOOK_VERSION to the same value) only when the notebook's cells change; a code-only change needs no new notebook.
-__version__ = "1.14.0"
-__updated__ = "2026-11-20 22:40 UTC"
+# __version__ / __updated__: bump on every release, and set the notebook's title line and NOTEBOOK_VERSION to the same values
+# (section 2 prints the code version, so you can see which code runs).
+# NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
+# in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
+__version__ = "1.15.0"
+__updated__ = "2026-11-21 04:32 UTC"
 NOTEBOOK_REQUIRED = "1.13.0"
 
 import collections
 import dataclasses
+import hashlib
 import json
 import os
 import pathlib
@@ -93,6 +95,12 @@ class Config:
     @property
     def run_dir(self) -> pathlib.Path:
         return self.sft_outputs / "train" / self.run_name
+
+    @property
+    def local_run_dir(self) -> pathlib.Path:
+        """Where the foreground training writes: the VM's own disk (fast, never depends on Drive's background upload).
+        Checkpoints are copied to run_dir on Drive by the verified uploader (_CheckpointUploader)."""
+        return pathlib.Path(os.environ.get("SHAER_LOCAL_ROOT", "/content/sft_local"), "train", self.run_name)
 
     @property
     def stall_seconds(self) -> int:
@@ -591,6 +599,11 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
         if not summary.exists():
             raise RuntimeError("training has not finished (no run_summary.json yet): run the training steps first")
         best = json.loads(summary.read_text())["best_eval_checkpoint"]
+        if best and not pathlib.Path(best).is_dir():         # recorded on the VM's local disk in an earlier session
+            for base in (cfg.local_run_dir, cfg.run_dir):
+                if (base / pathlib.Path(best).name).is_dir():
+                    best = str(base / pathlib.Path(best).name)
+                    break
         if not best or not pathlib.Path(best).is_dir():
             raise RuntimeError(f"checkpoint folder is missing: {best}")
         adapter_args, what = ["--adapter-path", best], f"the adapter trained here ({pathlib.Path(best).name})"
@@ -741,7 +754,8 @@ def _training_pid(cfg: Config) -> int | None:
 
 def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps: int = 200,
                    save_minutes: float | str | None = "auto", background: bool = False, auto_restart: bool = True,
-                   max_restarts: int = 3, eval_batch_size: int | str = "auto", allow_fresh_start: bool = False) -> None:
+                   max_restarts: int = 3, eval_batch_size: int | str = "auto", allow_fresh_start: bool = False,
+                   drive_upload: str = "api") -> None:
     """Run the full training in this cell, printing its progress as it happens; resumes from the newest complete checkpoint.
 
     The output (step bar with ETA, loss lines, evaluation) streams into the cell and is also appended to the log on Drive. While the
@@ -750,6 +764,9 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     resumes from the newest complete one. If the run is silent AND idle (GPU and CPU) for `cfg.stall_minutes`, it is stopped and,
     with `auto_restart`, restarted from the last checkpoint (up to `max_restarts` times).
     background=True: the old behaviour, a detached process followed with sc.watch_training(cfg).
+    drive_upload: the foreground run writes to this VM's disk and a background thread copies each finished checkpoint to Drive:
+    "api" (default) through the Drive API, each file's MD5 checked against Drive's (one Google consent prompt per session);
+    "mount" through the Drive mount (Colab uploads it later, unverified). If the API is not available it falls back to "mount".
     allow_fresh_start: this run already recorded training steps but has no complete checkpoint to resume from, it refuses to start
     from step 0 (and prints sc.checkpoint_report) unless this is True.
     eval_batch_size: rows per evaluation batch; "auto" (default) = 32 on a GPU with 70 GB or more (A100/H100 80 GB), 16 with 35 GB
@@ -788,7 +805,9 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
               "Use a new RUN_NAME to train again.")
         return
     _require_drive(cfg.drive_root)              # unmounted, the run would see no checkpoint and start at step 0 on local disk
-    complete = [s for s, _, p in _checkpoints(cfg) if not p]
+    if not background and not _training_pid(cfg) and not (cfg.run_dir / "run_summary.json").exists():
+        _restore_from_drive(cfg)                 # the newest complete checkpoint (and the best one) onto this VM's disk
+    complete = [s for base in (cfg.run_dir, cfg.local_run_dir) for s, _, p in _checkpoints(cfg, base) if not p]
     logged = _last_logged_step(cfg)
     if not complete and logged > 0 and not allow_fresh_start:
         print(f"✖ NOT STARTING: run '{cfg.run_name}' already trained to step {logged} (metrics.jsonl), but there is no complete checkpoint "
@@ -830,7 +849,8 @@ def start_training(cfg: Config, gradient_checkpointing: bool = True, save_steps:
     log = cfg.logs / f"train_{cfg.run_name}.log"
     cmd = [cfg.py, "-u", "train_sft.py", "--mode", "train", "--run_name", cfg.run_name]
     if not background:
-        _train_foreground(cfg, cmd, env, log, auto_restart, max_restarts)
+        env["SFT_OUTPUT_DIR"] = str(cfg.local_run_dir)   # checkpoints on this VM's disk; the uploader copies them to Drive
+        _train_foreground(cfg, cmd, env, log, auto_restart, max_restarts, drive_upload)
         return
     with open(log, "ab") as handle:
         proc = subprocess.Popen(cmd, cwd=pathlib.Path(cfg.repo_dir, "sft"), env=env, stdout=handle, stderr=subprocess.STDOUT,
@@ -857,7 +877,322 @@ def _log_has_oom(log: pathlib.Path, tail_bytes: int = 20000, during_eval: bool =
     return oom and any(k in last for k in ("evaluation_loop", "prediction_step", "def evaluate", "in evaluate", "meteraux"))
 
 
-def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto_restart: bool, max_restarts: int) -> None:
+# ------------------------------------------------------------------------------------------------ checkpoints: local + verified Drive copy
+# Colab's Drive mount uploads in the background and can lag far behind (checkpoints written to it were missing on Drive hours
+# later), and flush_and_unmount() is the only way to force it (it quits the Drive client, i.e. unmounts). So the foreground run
+# writes to the VM's disk (cfg.local_run_dir) and a background thread copies each finished checkpoint to Drive through the Drive
+# API, checks every file's MD5 against what Drive reports, and only then removes the older checkpoint folders on Drive.
+_FOLDER = "application/vnd.google-apps.folder"
+
+
+class _DriveAPI:
+    """The few Drive API (v3) calls the uploader needs. Authenticates with google.colab.auth (one consent prompt per session)."""
+
+    def __init__(self) -> None:
+        from google.colab import auth
+        auth.authenticate_user()
+        import google.auth
+        from googleapiclient.discovery import build
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive"])
+        self.svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        self.svc.files().list(q="'root' in parents and trashed = false", pageSize=1, fields="files(id)").execute()  # access check
+
+    def children(self, parent: str) -> list[dict]:
+        out, token = [], None
+        while True:
+            resp = self.svc.files().list(q=f"'{parent}' in parents and trashed = false", pageSize=1000, pageToken=token,
+                                         fields="nextPageToken, files(id, name, mimeType, size, md5Checksum)").execute()
+            out += resp.get("files", [])
+            token = resp.get("nextPageToken")
+            if not token:
+                return out
+
+    def create_folder(self, parent: str, name: str) -> str:
+        return self.svc.files().create(body={"name": name, "mimeType": _FOLDER, "parents": [parent]}, fields="id").execute()["id"]
+
+    def upload(self, parent: str, name: str, path: pathlib.Path, file_id: str | None = None) -> dict:
+        from googleapiclient.http import MediaFileUpload
+        size = path.stat().st_size
+        resumable = size > 8 * 2**20
+        media = MediaFileUpload(str(path), mimetype="application/octet-stream", resumable=resumable,
+                                **({"chunksize": 64 * 2**20} if resumable else {}))
+        fields = "id, name, size, md5Checksum"
+        if file_id:
+            req = self.svc.files().update(fileId=file_id, media_body=media, fields=fields)
+        else:
+            req = self.svc.files().create(body={"name": name, "parents": [parent]}, media_body=media, fields=fields)
+        if not resumable:
+            return req.execute(num_retries=5)
+        resp = None
+        while resp is None:
+            _, resp = req.next_chunk(num_retries=5)
+        return resp
+
+    def rename(self, file_id: str, name: str) -> None:
+        self.svc.files().update(fileId=file_id, body={"name": name}, fields="id").execute(num_retries=5)
+
+    def trash(self, file_id: str) -> None:
+        self.svc.files().update(fileId=file_id, body={"trashed": True}, fields="id").execute(num_retries=5)
+
+
+class _LocalFolderAPI:
+    """The same interface on a plain folder (ids are paths): the fallback when the Drive API is not available (it then copies
+    through the Drive mount, which Colab uploads in the background, unverified), and the stand-in for Drive in tests."""
+
+    def __init__(self, root: str = "/content/drive/MyDrive") -> None:
+        self.root = pathlib.Path(root)
+
+    def _p(self, file_id: str) -> pathlib.Path:
+        return self.root if file_id == "root" else pathlib.Path(file_id)
+
+    def children(self, parent: str) -> list[dict]:
+        out = []
+        for c in self._p(parent).iterdir():
+            entry = {"id": str(c), "name": c.name, "mimeType": _FOLDER if c.is_dir() else "application/octet-stream"}
+            if c.is_file():
+                entry.update(size=str(c.stat().st_size), md5Checksum=_md5(c))
+            out.append(entry)
+        return out
+
+    def create_folder(self, parent: str, name: str) -> str:
+        d = self._p(parent) / name
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d)
+
+    def upload(self, parent: str, name: str, path: pathlib.Path, file_id: str | None = None) -> dict:
+        dest = pathlib.Path(file_id) if file_id else self._p(parent) / name
+        shutil.copyfile(path, dest)
+        return {"id": str(dest), "md5Checksum": _md5(dest), "size": str(dest.stat().st_size)}
+
+    def rename(self, file_id: str, name: str) -> None:
+        path = pathlib.Path(file_id)
+        path.rename(path.with_name(name))
+
+    def trash(self, file_id: str) -> None:
+        path = pathlib.Path(file_id)
+        shutil.rmtree(path) if path.is_dir() else path.unlink()
+
+
+def _md5(path: pathlib.Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8 * 2**20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class _CheckpointUploader(threading.Thread):
+    """Background copy of the local run folder to Drive through the Drive API, verified file by file.
+
+    Every `every` seconds: upload the newest complete local checkpoint (and the best one, if different) that is not on Drive
+    yet, into a folder named checkpoint-N.uploading (ignored by resume), check each file's MD5 with Drive's, rename it to
+    checkpoint-N, then move older checkpoint folders on Drive to Drive's Trash (the newest and the best are always kept). Small
+    run files (metrics.jsonl, events.jsonl, ...) are replaced when they changed. Errors are reported and retried next round;
+    training is never blocked or stopped by it.
+    """
+
+    def __init__(self, cfg: Config, api=None, every: int = 60) -> None:
+        super().__init__(daemon=True)
+        self.cfg, self.api, self.every = cfg, api, every
+        self.stop_event, self.lock = threading.Event(), threading.Lock()
+        self.uploaded: dict[str, str] = {}       # checkpoint name -> signature of its trainer_state.json when uploaded
+        self.small_sig: dict[str, tuple] = {}
+        self.folder_id: str | None = None
+        self.last_ok: str | None = None
+        self.errors = 0
+
+    # -- Drive folder of this run, found (or created) by its path under My Drive
+    def _run_folder(self) -> str:
+        if self.folder_id:
+            return self.folder_id
+        run_dir = pathlib.Path(self.cfg.run_dir)
+        rel = run_dir.relative_to("/content/drive/MyDrive") if str(run_dir).startswith("/content/drive/MyDrive/") \
+            else run_dir.relative_to(run_dir.anchor)          # tests: a plain folder, with the API rooted at "/"
+        parent = "root"
+        for part in rel.parts:
+            match = [f for f in self.api.children(parent) if f["name"] == part and f["mimeType"] == _FOLDER]
+            parent = match[0]["id"] if match else self.api.create_folder(parent, part)
+        self.folder_id = parent
+        return parent
+
+    @staticmethod
+    def _sig(path: pathlib.Path) -> str:
+        st = (path / "trainer_state.json").stat()
+        return f"{st.st_size}:{int(st.st_mtime)}"
+
+    def _upload_dir(self, parent: str, local: pathlib.Path, name: str) -> tuple[str, int]:
+        """Upload a folder (recursively) as `name` under parent, verify every file, return (folder id, bytes)."""
+        folder, total = self.api.create_folder(parent, name), 0
+        for item in sorted(local.iterdir()):
+            if item.is_dir():
+                total += self._upload_dir(folder, item, item.name)[1]
+                continue
+            resp = self.api.upload(folder, item.name, item)
+            if str(resp.get("md5Checksum", "")) != _md5(item) or int(resp.get("size", -1)) != item.stat().st_size:
+                raise RuntimeError(f"{item.name}: Drive's copy does not match (size {resp.get('size')} vs {item.stat().st_size})")
+            total += item.stat().st_size
+        return folder, total
+
+    def _same_on_drive(self, folder_id: str, local: pathlib.Path) -> bool:
+        """True when the Drive folder already holds exactly these files with the same MD5 (e.g. written earlier via the mount)."""
+        remote = {f["name"]: f for f in self.api.children(folder_id)}
+        for item in local.iterdir():
+            if item.is_dir():
+                return False                                  # not needed for checkpoints; upload to be safe
+            f = remote.get(item.name)
+            if not f or str(f.get("md5Checksum", "")) != _md5(item):
+                return False
+        return True
+
+    def _best_name(self, newest: pathlib.Path) -> str | None:
+        try:
+            best = json.loads((newest / "trainer_state.json").read_text()).get("best_model_checkpoint")
+        except (OSError, ValueError):
+            return None
+        return pathlib.Path(best).name if best else None
+
+    def sync_once(self, final: bool = False) -> None:
+        with self.lock:
+            local = self.cfg.local_run_dir
+            if not local.is_dir():
+                return
+            complete = sorted((int(m.group(1)), p) for p in local.iterdir()
+                              if (m := re.fullmatch(r"checkpoint-(\d+)", p.name)) and p.is_dir() and not _checkpoint_problem(p))
+            parent = self._run_folder()
+            remote = {f["name"]: f for f in self.api.children(parent)}
+            if complete:
+                newest = complete[-1][1]
+                wanted = [newest]
+                best = self._best_name(newest)
+                if best and best != newest.name and (local / best).is_dir() and not _checkpoint_problem(local / best):
+                    wanted.insert(0, local / best)
+                for f in [f for f in remote.values() if f["name"].endswith(".uploading")]:
+                    self.api.trash(f["id"])                      # cut-off earlier attempts
+                for ckpt in wanted:
+                    sig = self._sig(ckpt)
+                    if self.uploaded.get(ckpt.name) == sig:
+                        continue
+                    if ckpt.name in remote and self._same_on_drive(remote[ckpt.name]["id"], ckpt):
+                        self.uploaded[ckpt.name] = sig           # already on Drive, verified by MD5: nothing to upload
+                        self.last_ok = ckpt.name
+                        print(f"  ☁ Drive: {ckpt.name} is already on Drive (verified)", flush=True)
+                        continue
+                    t0 = time.time()
+                    tmp_name = ckpt.name + ".uploading"
+                    folder, size = self._upload_dir(parent, ckpt, tmp_name)
+                    if ckpt.name in remote:                      # an older copy with the same name (e.g. written via the mount)
+                        self.api.trash(remote[ckpt.name]["id"])
+                    self.api.rename(folder, ckpt.name)
+                    self.uploaded[ckpt.name] = sig
+                    self.last_ok = ckpt.name
+                    print(f"  ☁ Drive: {ckpt.name} uploaded and verified ({size / 2**30:.2f} GB in {_fmt(time.time() - t0)})",
+                          flush=True)
+                keep = {c.name for c in wanted}
+                remote = {f["name"]: f for f in self.api.children(parent)}
+                newest_step = complete[-1][0]
+                for name, f in remote.items():
+                    m = re.fullmatch(r"checkpoint-(\d+)", name)
+                    if m and f["mimeType"] == _FOLDER and name not in keep and int(m.group(1)) < newest_step \
+                            and all(self.uploaded.get(k) for k in keep):
+                        self.api.trash(f["id"])
+                        print(f"  ☁ Drive: moved the older {name} to Drive's Trash", flush=True)
+            for item in sorted(local.iterdir()):                 # metrics.jsonl, events.jsonl, run_summary.json, ...
+                if item.is_dir():
+                    if final and not re.fullmatch(r"checkpoint-\d+", item.name) and item.name not in remote:
+                        self._upload_dir(parent, item, item.name)
+                    continue
+                st = item.stat()
+                sig = (st.st_size, int(st.st_mtime))
+                if self.small_sig.get(item.name) == sig:
+                    continue
+                existing = remote.get(item.name)
+                self.api.upload(parent, item.name, item, file_id=existing["id"] if existing else None)
+                self.small_sig[item.name] = sig
+
+    def run(self) -> None:
+        while not self.stop_event.wait(self.every):
+            try:
+                self.sync_once()
+                self.errors = 0
+            except Exception as exc:                             # network hiccup, quota, ...: report, retry next round
+                self.errors += 1
+                print(f"  ⚠ Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]}); retrying in {self.every} s "
+                      f"(newest checkpoint verified on Drive: {self.last_ok or 'none yet'})", flush=True)
+
+    def finish(self) -> None:
+        """Stop the background loop and do a last, complete upload (newest + best checkpoint, all run files)."""
+        self.stop_event.set()
+        self.join(timeout=5)
+        for attempt in range(3):
+            try:
+                self.sync_once(final=True)
+                print(f"  ☁ Drive: final upload done (newest verified checkpoint: {self.last_ok or 'none'})", flush=True)
+                return
+            except Exception as exc:
+                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})"
+                      + (", retrying" if attempt < 2 else "; the checkpoints are still on this VM's disk at "
+                         f"{self.cfg.local_run_dir}: run sc.upload_checkpoints(cfg) before ending the session"), flush=True)
+                time.sleep(10)
+
+
+def upload_checkpoints(cfg: Config) -> None:
+    """Upload the newest (and best) local checkpoint and the run files to Drive now, verified (e.g. after a failed final upload)."""
+    up = _CheckpointUploader(cfg, api=_DriveAPI())
+    up.sync_once(final=True)
+    print(f"✔ newest verified checkpoint on Drive: {up.last_ok or 'none'}")
+
+
+def _restore_from_drive(cfg: Config) -> None:
+    """Before a foreground start: make sure the VM's disk has the newest complete checkpoint (from Drive if it is newer there),
+    the best checkpoint it refers to, and the run files, so train_sft.py resumes from cfg.local_run_dir."""
+    local, drive = cfg.local_run_dir, cfg.run_dir
+    local.mkdir(parents=True, exist_ok=True)
+    def complete(base: pathlib.Path) -> dict[int, pathlib.Path]:
+        if not base.is_dir():
+            return {}
+        return {int(m.group(1)): p for p in base.iterdir()
+                if (m := re.fullmatch(r"checkpoint-(\d+)", p.name)) and p.is_dir() and not _checkpoint_problem(p)}
+    on_local, on_drive = complete(local), complete(drive)
+    newest_local, newest_drive = max(on_local, default=0), max(on_drive, default=0)
+    if drive.is_dir():                                           # run files: take Drive's when the VM has none (new session)
+        for item in drive.iterdir():
+            if item.is_file() and not (local / item.name).exists():
+                shutil.copy2(item, local / item.name)
+    if newest_drive > newest_local:
+        names = {f"checkpoint-{newest_drive}"}
+        try:
+            best = json.loads((on_drive[newest_drive] / "trainer_state.json").read_text()).get("best_model_checkpoint")
+            if best and (drive / pathlib.Path(best).name).is_dir():
+                names.add(pathlib.Path(best).name)
+        except (OSError, ValueError):
+            pass
+        for name in sorted(names):
+            if (local / name).is_dir() and not _checkpoint_problem(local / name):
+                continue
+            t0 = time.time()
+            tmp = local / (name + ".copying")
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            shutil.copytree(drive / name, tmp)
+            if (local / name).exists():
+                shutil.rmtree(local / name)
+            tmp.rename(local / name)
+            print(f"  copied {name} from Drive to this VM's disk in {_fmt(time.time() - t0)}", flush=True)
+    for ckpt in complete(local).values():                        # best_model_checkpoint must name a folder on this disk
+        state_path = ckpt / "trainer_state.json"
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, ValueError):
+            continue
+        best = state.get("best_model_checkpoint")
+        if best and pathlib.Path(best).parent != local:
+            state["best_model_checkpoint"] = str(local / pathlib.Path(best).name)
+            state_path.write_text(json.dumps(state, indent=2))
+
+
+
+def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto_restart: bool, max_restarts: int,
+                      drive_upload: str = "api") -> None:
     """start_training's default: run train_sft.py in this cell, stream its output, restart it when it hangs."""
     t0 = _start(f"training run '{cfg.run_name}' in this cell",
                 "startup (model load, tokenising, packing) takes several minutes, then the step bar appears")
@@ -865,10 +1200,22 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
     print("  " + version, flush=True)
     with open(log, "a", encoding="utf-8") as handle:     # so the log on Drive also says which code produced each start
         handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC | start_training | {version}\n")
+    api = None
+    if drive_upload == "api":
+        try:
+            api = _DriveAPI()
+            print("  checkpoints: written to this VM's disk, then uploaded to Drive through the Drive API and verified (MD5)")
+        except Exception as exc:
+            print(f"  ⚠ Drive API not available ({exc.__class__.__name__}: {str(exc)[:120]}); copying checkpoints through the "
+                  "Drive mount instead (uploaded by Colab in the background, not verified)")
+    if api is None:
+        api = _LocalFolderAPI("/content/drive/MyDrive")
+    uploader = _CheckpointUploader(cfg, api=api)
+    uploader.start()
     restarts = 0
     try:
         while True:
-            resumed = sorted(p.name for p in cfg.run_dir.glob("checkpoint-*")) if cfg.run_dir.exists() else []
+            resumed = sorted(p.name for p in cfg.local_run_dir.glob("checkpoint-*")) if cfg.local_run_dir.exists() else []
             print("  resuming from the newest complete of " + str(resumed) if resumed else "  starting from step 0 (no checkpoint yet)",
                   flush=True)
             try:
@@ -905,10 +1252,12 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
         stopped = False
     finally:
         _pid_file(cfg).unlink(missing_ok=True)
-        flush_drive()                            # stopped, finished or failed: get the newest checkpoint onto Drive now
+        uploader.finish()                        # stopped, finished or failed: the newest checkpoint onto Drive, verified
+        flush_drive()                            # and whatever else went through the mount (log, data cache)
     if stopped:
         return
-    print("✔ training finished: run the generation step (7c)" if (cfg.run_dir / "run_summary.json").exists()
+    finished = (cfg.run_dir / "run_summary.json").exists() or (cfg.local_run_dir / "run_summary.json").exists()
+    print("✔ training finished: run the generation step (7c)" if finished
           else "training process exited", flush=True)
     _finish(t0, "training")
 
@@ -1016,11 +1365,12 @@ def _checkpoint_problem(path: pathlib.Path) -> str | None:
     return None
 
 
-def _checkpoints(cfg: Config) -> list[tuple[int, pathlib.Path, str | None]]:
-    if not cfg.run_dir.is_dir():
+def _checkpoints(cfg: Config, base: pathlib.Path | None = None) -> list[tuple[int, pathlib.Path, str | None]]:
+    base = cfg.run_dir if base is None else base
+    if not base.is_dir():
         return []
     found = []
-    for child in cfg.run_dir.iterdir():
+    for child in base.iterdir():
         m = re.fullmatch(r"checkpoint-(\d+)", child.name)
         if m and child.is_dir():
             found.append((int(m.group(1)), child, _checkpoint_problem(child)))
@@ -1028,9 +1378,12 @@ def _checkpoints(cfg: Config) -> list[tuple[int, pathlib.Path, str | None]]:
 
 
 def _last_logged_step(cfg: Config) -> int:
-    """Highest training step recorded in metrics.jsonl (0 if none): evidence that this run already made progress."""
+    """Highest training step recorded in metrics.jsonl on Drive or on this VM (0 if none): evidence of earlier progress."""
+    return max(_last_logged_step_in(cfg.run_dir / "metrics.jsonl"), _last_logged_step_in(cfg.local_run_dir / "metrics.jsonl"))
+
+
+def _last_logged_step_in(path: pathlib.Path) -> int:
     best = 0
-    path = cfg.run_dir / "metrics.jsonl"
     if path.exists():
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for raw in f:
@@ -1061,7 +1414,10 @@ def checkpoint_report(cfg: Config) -> None:
         size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
         mtime = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(path.stat().st_mtime))
         print(f"  {path.name:<18} {size / 2**30:5.2f} GB  modified {mtime}  " + ("✔ complete" if not problem else f"✖ {problem}"))
-    complete = [s for s, _, p in ckpts if not p]
+    local_ckpts = _checkpoints(cfg, cfg.local_run_dir)
+    for step, path, problem in local_ckpts:
+        print(f"  on this VM: {path.name:<18} " + ("✔ complete" if not problem else f"✖ {problem}"))
+    complete = [s for s, _, p in ckpts + local_ckpts if not p]
     print(f"  a restart resumes from: {'checkpoint-%d' % max(complete) if complete else 'NOTHING (step 0)'}")
     print(f"  last training step in metrics.jsonl: {_last_logged_step(cfg)}")
     cache_root = cfg.sft_outputs / "data_cache"

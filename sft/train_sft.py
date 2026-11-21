@@ -360,7 +360,7 @@ def build_runtime_config(args: argparse.Namespace) -> RuntimeConfig:
         continuation_namespace=str(env_or("SFT_CONTINUATION_NAMESPACE", defaults.get("continuation_namespace", "continuation"))),
         resume_mode=args.resume,
         resume_path=args.resume_path,
-        output_dir=(output_root / run_name).resolve(),
+        output_dir=Path(os.environ.get("SFT_OUTPUT_DIR") or (output_root / run_name)).resolve(),   # the Colab notebook: local disk
         seed=int(defaults.get("seed", 42)),
         push_to_hub=str2bool(env_or("SFT_PUSH_TO_HUB", defaults.get("push_to_hub", True))),
         max_seq_length=int(data.get("max_length", defaults.get("max_seq_length", 2048))),

@@ -52,6 +52,10 @@ It is not a full end-to-end reproduction notebook for training.
   (the yaml's `save_total_limit: 3` stays the default for other runs).
 - `sc.start_training(cfg)` evaluates in batches of 8 rows (`eval_batch_size=8`, through `SFT_PER_DEVICE_EVAL_BATCH_SIZE`; the paper's
   configuration uses 1, ~31 min per evaluation on an L4). Training is unchanged; the eval loss shifts slightly (token-averaged per batch).
+- **Checkpoints: local disk + verified Drive upload.** The foreground run writes checkpoints to the VM's disk
+  (`/content/sft_local/train/<RUN_NAME>`); a background thread uploads each finished one to the Drive run folder through the Drive
+  API, checks each file's MD5 with Drive's, then trashes the older ones on Drive (newest and best kept). A new session copies the
+  newest checkpoint back from Drive and resumes. Colab's Drive mount alone uploads lazily and lost checkpoints when a session ended.
 - **Prepared-data cache.** Before the first step, `sft/train_sft.py` downloads the dataset, annotates, filters, adds meter ids,
   builds the probe bank, tokenises and packs (about 11 min on an L4). The result is saved once to Drive
   (`sft_outputs/data_cache/<key>`, ~1 GB) and later starts copy it to local disk and load it in seconds. The key covers the data
