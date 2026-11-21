@@ -50,9 +50,22 @@ baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 | M3 | Strict re-scoring of the baselines with the verifier | done for the reference and E0 (`validation/M3_report.md`); E1–E3 are scored on Colab with the same code |
 | M4 | Verifier-guided decoding vs best-of-N at equal compute | code and local validation in `validation/M4_report.md`; the runs need a GPU on Colab |
 
+## Where things are on Drive
+
+| folder | what | written by |
+|---|---|---|
+| `MyDrive/shaer-repro-yehia/` | the baseline: the E3 adapter in `sft_outputs/train/<RUN_NAME>/` (`paper_repro_a100` by default; `checkpoint-*`, `run_summary.json` naming the best one) and the generations in `runs/e0` … `runs/e3/` | the baseline notebook only; this notebook only reads it |
+| `MyDrive/shaer-repro-yehia-prosody/` | the same layout, beside the baseline's: anything this research trains or generates with the baseline's tools (`sc.start_training`, `sc.run_generation`), under run names `prosody_*` | this notebook (`pv.training_config(pvc, "prosody_<name>")`) |
+| `MyDrive/shaer-prosody/` | M0–M4 outputs (audits, verifier records, M4 runs, reports) | this notebook |
+
+`pv.make_config` replaces the baseline's configuration by the sibling one and points the repository's `sft/outputs` and
+`runs/` links at the sibling. A run name that does not start with `prosody_`, or that the baseline already uses, is
+refused.
+
 ## Standing rules
 
 * Branch `dev`, this folder only.
+* Never write into the baseline's Drive folder; this notebook's training runs go to the sibling folder above.
 * Long steps show progress and a heartbeat, and a silent idle step is stopped with resume instructions.
 * Generation and scoring runs write each finished row to Drive and resume from it.
 * Training runs (none yet; idea 2 was deferred) save a checkpoint about every 10 minutes of wall-clock time and keep the two

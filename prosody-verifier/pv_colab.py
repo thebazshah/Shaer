@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import pathlib
+import re
 import subprocess
 
 import shaer_colab as sc
@@ -69,11 +71,77 @@ class PVConfig:
         sc.run([self.py, *args], label=label, env=self.sc_cfg.env(), stall_after=self.sc_cfg.stall_seconds, **kw)
 
 
+# ---------------------------------------------------------------------------------------------- never write into the baseline
+# The baseline notebook keeps its fine-tuned adapter and its generations in MyDrive/shaer-repro-<tag>/:
+#   sft_outputs/train/<RUN_NAME>/checkpoint-*, run_summary.json   (the E3 adapter; RUN_NAME is paper_repro_a100 by default)
+#   runs/e0 ... runs/e3/{generations,scored}.jsonl, summary.json    (sc.run_generation(cfg, "e3") writes runs/e3)
+# This notebook only reads those folders. Anything it trains or generates through the baseline's machinery (sc.start_training,
+# sc.run_generation, the repository's sft/outputs and runs/ links) goes to the sibling MyDrive/shaer-repro-<tag>-prosody/,
+# with the same layout, under run names that start with "prosody_".
+SIBLING_SUFFIX = "-prosody"
+TRAIN_PREFIX = "prosody_"
+
+
+def baseline_root(sc_cfg: "sc.Config") -> pathlib.Path:
+    """The baseline's Drive folder (MyDrive/shaer-repro-<tag>), whether sc_cfg is the baseline's config or the sibling's."""
+    root = pathlib.Path(sc_cfg.drive_root)
+    return root.with_name(root.name[: -len(SIBLING_SUFFIX)]) if root.name.endswith(SIBLING_SUFFIX) else root
+
+
+def _inside(path: pathlib.Path, root: pathlib.Path) -> bool:
+    path, root = pathlib.Path(os.path.abspath(path)), pathlib.Path(os.path.abspath(root))
+    return path == root or root in path.parents
+
+
+def prosody_sc_config(sc_cfg: "sc.Config", run_name: str = f"{TRAIN_PREFIX}main") -> "sc.Config":
+    """A copy of the baseline's configuration whose every output folder (runs/, logs/, sft_outputs/, the training run
+    folder and its local copy on the VM) is in the sibling MyDrive/shaer-repro-<tag>-prosody/, beside the baseline's.
+    Refuses run names that do not start with "prosody_" or that a baseline run already uses."""
+    if not re.fullmatch(rf"{TRAIN_PREFIX}[A-Za-z0-9_.-]+", run_name or ""):
+        raise ValueError(f"run name {run_name!r}: a run of this notebook must be named {TRAIN_PREFIX}<something> "
+                         "(letters, digits, _ . -), so it can never be taken for a baseline run")
+    base = baseline_root(sc_cfg)
+    sibling = base.with_name(base.name + SIBLING_SUFFIX)
+    if (base / "sft_outputs" / "train" / run_name).exists() or (base / "runs" / run_name).exists():
+        raise ValueError(f"run name {run_name!r} is already used in the baseline folder {base}: choose another")
+    cfg = dataclasses.replace(sc_cfg, drive_root=str(sibling), run_name=run_name)
+    sc._require_drive(cfg.drive_root)
+    for sub in (cfg.runs, cfg.logs, cfg.sft_outputs):
+        sub.mkdir(parents=True, exist_ok=True)
+    for p in (cfg.runs, cfg.logs, cfg.sft_outputs, cfg.run_dir):
+        if _inside(p, base):
+            raise RuntimeError(f"refusing a configuration that writes into the baseline folder: {p}")
+    # the VM-local training folder is named after the run only (/content/sft_local/train/<run name>), so a run name the
+    # baseline itself uses would share it when both train on the same runtime
+    if run_name == sc_cfg.run_name and not _inside(pathlib.Path(sc_cfg.drive_root), sibling):
+        raise ValueError(f"run name {run_name!r} is the baseline's own RUN_NAME: choose another")
+    return cfg
+
+
+def training_config(pv: "PVConfig", run_name: str) -> "sc.Config":
+    """The configuration for a fine-tuning run of this research (idea 2 and later): sc.start_training(training_config(pvc,
+    "prosody_selftrain_r1")) writes its checkpoints to MyDrive/shaer-repro-<tag>-prosody/sft_outputs/train/<run_name>/,
+    never into the baseline's sft_outputs, and sc.run_generation(..., "e3") with it writes runs/e3 of the sibling."""
+    cfg = prosody_sc_config(pv.sc_cfg, run_name)
+    sc.sync_repo(cfg)                    # the repository's sft/outputs and runs/ links now point at the sibling
+    print(f"training run {run_name!r}: checkpoints -> {cfg.run_dir}")
+    return cfg
+
+
 def make_config(sc_cfg: "sc.Config", drive_base: str = "/content/drive/MyDrive") -> PVConfig:
+    """This notebook's configuration. If sc_cfg is the baseline's own (as from sc.make_config), it is replaced by the
+    sibling copy (prosody_sc_config) and the repository's output links are pointed at the sibling, so nothing this
+    notebook runs can write into the baseline's adapter or generations."""
+    if not pathlib.Path(sc_cfg.drive_root).name.endswith(SIBLING_SUFFIX):
+        sc_cfg = prosody_sc_config(sc_cfg)
+        if pathlib.Path(sc_cfg.repo_dir).exists():
+            sc.sync_repo(sc_cfg)
     pv = PVConfig(sc_cfg=sc_cfg, drive_base=drive_base)
     for d in (pv.m0, pv.logs):
         d.mkdir(parents=True, exist_ok=True)
     print("prosody-verifier outputs ->", pv.root)
+    print(f"baseline folder (read only) -> {baseline_root(sc_cfg)}; anything trained or generated with the baseline's "
+          f"tools -> {sc_cfg.drive_root}")
     return pv
 
 
