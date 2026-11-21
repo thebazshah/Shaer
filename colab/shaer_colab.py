@@ -23,8 +23,8 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.15.0"
-__updated__ = "2026-11-21 04:32 UTC"
+__version__ = "1.15.1"
+__updated__ = "2026-11-21 05:18 UTC"
 NOTEBOOK_REQUIRED = "1.13.0"
 
 import collections
@@ -948,10 +948,7 @@ class _LocalFolderAPI:
     def children(self, parent: str) -> list[dict]:
         out = []
         for c in self._p(parent).iterdir():
-            entry = {"id": str(c), "name": c.name, "mimeType": _FOLDER if c.is_dir() else "application/octet-stream"}
-            if c.is_file():
-                entry.update(size=str(c.stat().st_size), md5Checksum=_md5(c))
-            out.append(entry)
+            out.append({"id": str(c), "name": c.name, "mimeType": _FOLDER if c.is_dir() else "application/octet-stream"})
         return out
 
     def create_folder(self, parent: str, name: str) -> str:
@@ -963,6 +960,15 @@ class _LocalFolderAPI:
         dest = pathlib.Path(file_id) if file_id else self._p(parent) / name
         shutil.copyfile(path, dest)
         return {"id": str(dest), "md5Checksum": _md5(dest), "size": str(dest.stat().st_size)}
+
+    def md5(self, file_id: str) -> str:
+        """Checksum of one file, read on demand (listing never reads files: Google Docs/Slides on the mount cannot be read)."""
+        return _md5(pathlib.Path(file_id))
+
+    def folder_for(self, path: pathlib.Path) -> str:
+        """The run folder is a path on the mount: use it directly, without walking My Drive."""
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
 
     def rename(self, file_id: str, name: str) -> None:
         path = pathlib.Path(file_id)
@@ -1005,6 +1011,9 @@ class _CheckpointUploader(threading.Thread):
     def _run_folder(self) -> str:
         if self.folder_id:
             return self.folder_id
+        if hasattr(self.api, "folder_for"):                    # the mount fallback (and tests): a plain path
+            self.folder_id = self.api.folder_for(pathlib.Path(self.cfg.run_dir))
+            return self.folder_id
         run_dir = pathlib.Path(self.cfg.run_dir)
         rel = run_dir.relative_to("/content/drive/MyDrive") if str(run_dir).startswith("/content/drive/MyDrive/") \
             else run_dir.relative_to(run_dir.anchor)          # tests: a plain folder, with the API rooted at "/"
@@ -1040,7 +1049,10 @@ class _CheckpointUploader(threading.Thread):
             if item.is_dir():
                 return False                                  # not needed for checkpoints; upload to be safe
             f = remote.get(item.name)
-            if not f or str(f.get("md5Checksum", "")) != _md5(item):
+            if not f:
+                return False
+            remote_md5 = f.get("md5Checksum") or (self.api.md5(f["id"]) if hasattr(self.api, "md5") else "")
+            if str(remote_md5) != _md5(item):
                 return False
         return True
 
@@ -1206,8 +1218,10 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
             api = _DriveAPI()
             print("  checkpoints: written to this VM's disk, then uploaded to Drive through the Drive API and verified (MD5)")
         except Exception as exc:
-            print(f"  ⚠ Drive API not available ({exc.__class__.__name__}: {str(exc)[:120]}); copying checkpoints through the "
-                  "Drive mount instead (uploaded by Colab in the background, not verified)")
+            print(f"  ⚠ Drive API not available ({exc.__class__.__name__}: {str(exc)[:300]})\n"
+                  "    → copying checkpoints through the Drive mount instead (Colab uploads them in the background, NOT verified).\n"
+                  "    To use the verified upload: stop this cell, run  from google.colab import auth; auth.authenticate_user()  "
+                  "in a new cell, approve Google's prompt, and start 7b again.")
     if api is None:
         api = _LocalFolderAPI("/content/drive/MyDrive")
     uploader = _CheckpointUploader(cfg, api=api)
