@@ -23,9 +23,9 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.15.1"
-__updated__ = "2026-11-21 05:18 UTC"
-NOTEBOOK_REQUIRED = "1.13.0"
+__version__ = "1.16.0"
+__updated__ = "2026-11-21 05:40 UTC"
+NOTEBOOK_REQUIRED = "1.16.0"
 
 import collections
 import dataclasses
@@ -979,6 +979,22 @@ class _LocalFolderAPI:
         shutil.rmtree(path) if path.is_dir() else path.unlink()
 
 
+def _verified_marker(cfg: Config) -> pathlib.Path:
+    """Records the newest checkpoint the uploader put on Drive (on the VM's disk, next to the run folder)."""
+    return cfg.local_run_dir.parent / f"{cfg.run_name}.drive_verified.json"
+
+
+def _verified_step(cfg: Config) -> int:
+    try:
+        return int(json.loads(_verified_marker(cfg).read_text())["step"])
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
+def _newest_local_step(cfg: Config) -> int:
+    return max((s for s, _, prob in _checkpoints(cfg, cfg.local_run_dir) if not prob), default=0)
+
+
 def _md5(path: pathlib.Path) -> str:
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -1056,6 +1072,14 @@ class _CheckpointUploader(threading.Thread):
                 return False
         return True
 
+    def _mark(self, ckpt: pathlib.Path) -> None:
+        m = re.fullmatch(r"checkpoint-(\d+)", ckpt.name)
+        if not m or int(m.group(1)) < _verified_step(self.cfg):
+            return
+        via = "mount (uploaded by the next Drive flush)" if isinstance(self.api, _LocalFolderAPI) else "Drive API, MD5-verified"
+        _verified_marker(self.cfg).write_text(json.dumps({"checkpoint": ckpt.name, "step": int(m.group(1)), "via": via,
+                                                          "utc": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}))
+
     def _best_name(self, newest: pathlib.Path) -> str | None:
         try:
             best = json.loads((newest / "trainer_state.json").read_text()).get("best_model_checkpoint")
@@ -1087,6 +1111,7 @@ class _CheckpointUploader(threading.Thread):
                     if ckpt.name in remote and self._same_on_drive(remote[ckpt.name]["id"], ckpt):
                         self.uploaded[ckpt.name] = sig           # already on Drive, verified by MD5: nothing to upload
                         self.last_ok = ckpt.name
+                        self._mark(ckpt)
                         print(f"  ☁ Drive: {ckpt.name} is already on Drive (verified)", flush=True)
                         continue
                     t0 = time.time()
@@ -1097,8 +1122,10 @@ class _CheckpointUploader(threading.Thread):
                     self.api.rename(folder, ckpt.name)
                     self.uploaded[ckpt.name] = sig
                     self.last_ok = ckpt.name
-                    print(f"  ☁ Drive: {ckpt.name} uploaded and verified ({size / 2**30:.2f} GB in {_fmt(time.time() - t0)})",
-                          flush=True)
+                    self._mark(ckpt)
+                    how = ("copied into the Drive mount (uploaded by Colab; the Drive flush at the end waits for it)"
+                           if isinstance(self.api, _LocalFolderAPI) else "uploaded and verified")
+                    print(f"  ☁ Drive: {ckpt.name} {how} ({size / 2**30:.2f} GB in {_fmt(time.time() - t0)})", flush=True)
                 keep = {c.name for c in wanted}
                 remote = {f["name"]: f for f in self.api.children(parent)}
                 newest_step = complete[-1][0]
@@ -1131,27 +1158,73 @@ class _CheckpointUploader(threading.Thread):
                 print(f"  ⚠ Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]}); retrying in {self.every} s "
                       f"(newest checkpoint verified on Drive: {self.last_ok or 'none yet'})", flush=True)
 
-    def finish(self) -> None:
-        """Stop the background loop and do a last, complete upload (newest + best checkpoint, all run files)."""
+    def finish(self) -> bool:
+        """Stop the background loop and do a last, complete upload (newest + best checkpoint, all run files). If the Drive API
+        fails, copy through the Drive mount instead (the Drive flush that follows uploads it). True when it succeeded."""
         self.stop_event.set()
         self.join(timeout=5)
         for attempt in range(3):
             try:
                 self.sync_once(final=True)
-                print(f"  ☁ Drive: final upload done (newest verified checkpoint: {self.last_ok or 'none'})", flush=True)
-                return
+                print(f"  ☁ Drive: final upload done (newest checkpoint on Drive: {self.last_ok or 'none'})", flush=True)
+                return True
             except Exception as exc:
-                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})"
-                      + (", retrying" if attempt < 2 else "; the checkpoints are still on this VM's disk at "
-                         f"{self.cfg.local_run_dir}: run sc.upload_checkpoints(cfg) before ending the session"), flush=True)
-                time.sleep(10)
+                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})", flush=True)
+                if attempt < 2:
+                    time.sleep(10)
+        if not isinstance(self.api, _LocalFolderAPI):
+            try:
+                print("  copying the newest checkpoint through the Drive mount instead ...", flush=True)
+                self.api, self.folder_id = _LocalFolderAPI(), None
+                self.sync_once(final=True)
+                print(f"  ☁ Drive: copied through the mount (newest: {self.last_ok or 'none'}); the Drive flush uploads it", flush=True)
+                return True
+            except Exception as exc:
+                print(f"  ⚠ copying through the mount failed too ({exc.__class__.__name__}: {str(exc)[:160]})", flush=True)
+        print(f"  ✖ THE NEWEST CHECKPOINTS ARE ONLY ON THIS VM ({self.cfg.local_run_dir}). Do NOT end the session: run "
+              "sc.upload_checkpoints(cfg).", flush=True)
+        return False
 
 
-def upload_checkpoints(cfg: Config) -> None:
-    """Upload the newest (and best) local checkpoint and the run files to Drive now, verified (e.g. after a failed final upload)."""
-    up = _CheckpointUploader(cfg, api=_DriveAPI())
+def upload_checkpoints(cfg: Config) -> bool:
+    """Put the newest (and best) checkpoint on this VM's disk and the run files on Drive now: through the Drive API, verified by
+    MD5; if that is not available, through the Drive mount followed by a Drive flush (which returns only once it is uploaded)."""
+    _require_drive(cfg.drive_root)
+    try:
+        up = _CheckpointUploader(cfg, api=_DriveAPI())
+        up.sync_once(final=True)
+        print(f"✔ newest checkpoint on Drive (verified): {up.last_ok or 'none'}")
+        return True
+    except Exception as exc:
+        print(f"  Drive API upload not possible ({exc.__class__.__name__}: {str(exc)[:200]}); copying through the mount ...")
+    up = _CheckpointUploader(cfg, api=_LocalFolderAPI())
     up.sync_once(final=True)
-    print(f"✔ newest verified checkpoint on Drive: {up.last_ok or 'none'}")
+    ok = flush_drive(remount=True)
+    print(("✔ " if ok else "⚠ ") + f"newest checkpoint copied to Drive: {up.last_ok or 'none'}"
+          + ("" if ok else " (the Drive flush did not finish: run sc.flush_drive() before ending the session)"))
+    return ok
+
+
+def release_runtime(cfg: Config, only_if_finished: bool = True) -> None:
+    """End this Colab session (runtime.unassign) safely: only when training finished (unless only_if_finished=False) and
+    after the newest checkpoint on this VM is on Drive and Drive is flushed. Otherwise it says why and keeps the session."""
+    finished = (cfg.run_dir / "run_summary.json").exists() or (cfg.local_run_dir / "run_summary.json").exists()
+    if only_if_finished and not finished:
+        print("■ NOT releasing the runtime: training has not finished (no run_summary.json). Run 7b to continue, or "
+              "sc.release_runtime(cfg, only_if_finished=False) to end the session anyway (checkpoints are uploaded first).")
+        return
+    newest, verified = _newest_local_step(cfg), _verified_step(cfg)
+    if newest and verified < newest:
+        print(f"  checkpoint-{newest} on this VM is not on Drive yet (on Drive: {verified or 'none'}): uploading it first")
+        if not upload_checkpoints(cfg):
+            print("■ NOT releasing the runtime: the upload did not finish. Fix that first (see the messages above).")
+            return
+    if not flush_drive(remount=False):
+        print("■ NOT releasing the runtime: the Drive flush did not finish.")
+        return
+    from google.colab import runtime
+    print("✔ everything is on Drive; releasing the runtime (this ends the session)")
+    runtime.unassign()
 
 
 def _restore_from_drive(cfg: Config) -> None:
@@ -1260,16 +1333,19 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                 else:
                     raise
     except KeyboardInterrupt:
-        print("■ training stopped. Checkpoints are kept: run this cell again to resume from the newest complete one.", flush=True)
+        print("■ training stopped. Uploading the newest checkpoint to Drive before anything else ...", flush=True)
         stopped = True
     else:
         stopped = False
     finally:
         _pid_file(cfg).unlink(missing_ok=True)
-        uploader.finish()                        # stopped, finished or failed: the newest checkpoint onto Drive, verified
-        flush_drive()                            # and whatever else went through the mount (log, data cache)
+        uploaded = uploader.finish()             # stopped, finished or failed: the newest checkpoint onto Drive
+        flush_drive()                            # and whatever went through the mount (log, data cache, a fallback copy)
     if stopped:
-        return
+        print("■ training stopped" + (" and its newest checkpoint is on Drive." if uploaded else
+              ", but its newest checkpoint is NOT on Drive (see above).")
+              + " Run all stops here, so no later cell runs. Run this cell again to resume.", flush=True)
+        raise KeyboardInterrupt                  # so Runtime > Run all does not go on to the cells after 7b
     finished = (cfg.run_dir / "run_summary.json").exists() or (cfg.local_run_dir / "run_summary.json").exists()
     print("✔ training finished: run the generation step (7c)" if finished
           else "training process exited", flush=True)
