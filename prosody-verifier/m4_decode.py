@@ -83,7 +83,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--adapter-subfolder", default=GST.ADAPTER_SUBFOLDER)
     ap.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     ap.add_argument("--device", default="auto")
-    ap.add_argument("--dataset-id", default=GST.DATASET_ID)
+    ap.add_argument("--dataset-id", default=GST.DATASET_ID, help="a Hugging Face dataset or a folder built by m5_data.py")
     ap.add_argument("--max-new-tokens", type=int, default=768, help="sample mode")
     ap.add_argument("--temperature", type=float, default=0.55)
     ap.add_argument("--top-p", type=float, default=0.90)
@@ -118,6 +118,7 @@ def prompt_rows(args) -> list[dict]:
             "requested_bayts": int(r["requested_bayts"]), "requested_num_lines": int(r["sft_num_lines"]),
             "length_bucket": r.get("length_bucket"), "description": r.get("description"),
             "enhanced_description": r.get("enhanced_description"), "reference_completion": r.get("sft_completion"),
+            **({"requested_rawi": r["requested_rawi"]} if r.get("requested_rawi") is not None else {}),   # M5 prompts
         })
     return rows
 

@@ -41,8 +41,11 @@ Open the latest notebook in Colab: https://colab.research.google.com/github/theb
 | `m4_decode.py` | M4 on the GPU: whole poems (I0/I1) or the hemistich search (I2) with the released adapter; `selfcheck` mode |
 | `m4_report.py` | M4 summary: best-of-N against the search at equal compute, independent views, quality, integrity checks |
 | `m4_replay.py` | M4 validation without a GPU: the search on real lines, scored by the full M3 pipeline |
+| `m5_data.py` | M5: the verifier's labels of the corpus; the training sets 2a (rawī in the prompt), 2b (verifier-clean), 2c (self-generated, gated) for the unchanged `sft/train_sft.py` |
+| `m5_report.py` | M5 summary: one sample per test prompt of each trained variant against E3 / E1 (and GRPO), rawī as requested, quality |
+| `m6_quality.py` | M6: collect the final systems, inputs for the paper's LLM judge, a blinded human rating sheet and its scoring, the quality table |
 | `tests/` | `python -m pytest prosody-verifier/tests -q` |
-| `validation/` | written reports: the rule-table cross-check, the M1, M3 and M4 validations |
+| `validation/` | written reports: the rule-table cross-check, the M1, M3, M4, M5 and M6 validations |
 
 ## Milestones
 
@@ -53,6 +56,8 @@ Open the latest notebook in Colab: https://colab.research.google.com/github/theb
 | M2 | Expert-checked gold set; sign-off of the rule tables | needs a prosody expert |
 | M3 | Strict re-scoring of the baselines with the verifier | done for the reference and E0 (`validation/M3_report.md`); E1–E3 are scored on Colab with the same code |
 | M4 | Verifier-guided decoding vs best-of-N at equal compute | code and local validation in `validation/M4_report.md`; the runs need a GPU on Colab |
+| M5 | Self-training (idea 2): rawī in the prompt (2a), verifier-clean data (2b), rejection-sampling rounds (2c) | code and local validation in `validation/M5_report.md`; training and generation need a GPU |
+| M6 | Quality study: the paper's LLM judge, copying and diversity, blinded human ratings | code and local validation in `validation/M6_report.md`; the judge is a paid API |
 
 ## Where things are on Drive
 
@@ -60,7 +65,7 @@ Open the latest notebook in Colab: https://colab.research.google.com/github/theb
 |---|---|---|
 | `MyDrive/shaer-repro-yehia/` | the baseline: the E3 adapter in `sft_outputs/train/<RUN_NAME>/` (`paper_repro_a100` by default; `checkpoint-*`, `run_summary.json` naming the best one) and the generations in `runs/e0` … `runs/e3/` | the baseline notebook only; this notebook only reads it |
 | `MyDrive/shaer-repro-yehia-prosody/` | the same layout, beside the baseline's: anything this research trains or generates with the baseline's tools (`sc.start_training`, `sc.run_generation`), under run names `prosody_*` | this notebook (`pv.training_config(pvc, "prosody_<name>")`) |
-| `MyDrive/shaer-prosody/` | M0–M4 outputs (audits, verifier records, M4 runs, reports) | this notebook |
+| `MyDrive/shaer-prosody/` | M0–M6 outputs (audits, verifier records, M4 runs, M5 labels, data sets and test runs, M6 judge and ratings, reports) | this notebook |
 
 `pv.make_config` replaces the baseline's configuration by the sibling one and points the repository's `sft/outputs` and
 `runs/` links at the sibling. A run name that does not start with `prosody_`, or that the baseline already uses, is
@@ -70,9 +75,13 @@ refused.
 
 * Branch `dev`, this folder only.
 * Never write into the baseline's Drive folder; this notebook's training runs go to the sibling folder above.
+* Versions: every change of this folder's code bumps `__version__` in `pv_colab.py`; a change of the notebook's cells also
+  bumps `NOTEBOOK_VERSION` at the top of `prosody_main.ipynb` (its title cell and configuration cell) and
+  `NOTEBOOK_REQUIRED`. Section 2 of the notebook prints both and warns when the notebook copy is too old.
 * Long steps show progress and a heartbeat, and a silent idle step is stopped with resume instructions.
 * Generation and scoring runs write each finished row to Drive and resume from it.
-* Training runs (none yet; idea 2 was deferred) save a checkpoint about every 10 minutes of wall-clock time and keep the two
-  most recent plus the best one. Saving is time-based rather than a fixed step count, so it adapts to the GPU. Reference
+* Training runs (M5) save a resume checkpoint about every 10 minutes of wall-clock time (`save_minutes=10`), time-based
+  rather than a fixed step count, so it adapts to the GPU. They use the baseline's runner, which keeps two checkpoints on
+  Drive (the latest and the best); keeping the two latest plus the best would need a change to the baseline's module. Reference
   speeds for this recipe: 10.65 s/step in the authors' run (4,236 steps in 12.5 h, about 56 steps per 10 minutes);
   18.8 s/step on our Colab A100 while the GPU was shared with a generation job (about 32 steps per 10 minutes).

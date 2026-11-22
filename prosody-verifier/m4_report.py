@@ -117,6 +117,28 @@ def _budget(run: dict, pid: str, n: int, search: bool) -> dict:
             "check_seconds": sum(float(x.get("check_seconds") or 0) for x in m4)}
 
 
+def slug(condition: str) -> str:
+    """A file name for a condition: 'I1 best-of-4 [i1_n16]' -> 'i1_n16__i1_best_of_4'."""
+    run = re.search(r"\[(.+?)\]", condition)
+    label = re.sub(r"[^a-z0-9]+", "_", condition.split(" [")[0].lower()).strip("_")
+    return f"{run.group(1) if run else 'run'}__{label}"
+
+
+def write_selected(m4_dir: Path, condition: str, sel: dict, run: dict) -> Path:
+    """The poems a condition selected, one per prompt, in the generations schema (sample_idx 0), for the M6 judge."""
+    d = Path(m4_dir) / "selected"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{slug(condition)}.jsonl"
+    rows = []
+    for pid in sorted(sel):
+        g = dict(run["gens"].get(sel[pid]) or {})
+        if g:
+            g["selected_sample"], g["sample_idx"], g["condition"] = int(sel[pid][1]), 0, condition
+            rows.append(g)
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    return path
+
+
 def per_poem(rec: dict, margin: float) -> dict:
     v = m3.poem_metrics(rec, margin)
     v["valid_ignoring_length"] = v["meter_ok"] and rec["rhyme_ok"] and rec["even"]
@@ -231,6 +253,7 @@ def summarize(m4_dir: Path, train: Path | None = None, reps: int = 1000, seed: i
             off = ss.summarise(rows)
             official = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in off.items()}
         gens = [run["gens"].get(k) or {} for k in sel.values()]
+        write_selected(m4_dir, name, sel, run)
         out = res["conditions"][name] = {
             "run": c["run"], "n": c["n"], "kind": "search" if search else "sample",
             "budget": {"gen_tokens": mean("gen_tokens"), "prefill_tokens": mean("prefill_tokens"),

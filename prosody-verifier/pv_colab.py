@@ -32,6 +32,10 @@ import subprocess
 
 import shaer_colab as sc
 
+__version__ = "1.0.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__updated__ = "2026-11-22 UTC"
+NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
+
 HERE = pathlib.Path(__file__).resolve().parent
 DRIVE_FOLDER = "shaer-prosody"
 RELEASED_TEST_ROWS = 3481
@@ -127,6 +131,19 @@ def training_config(pv: "PVConfig", run_name: str) -> "sc.Config":
     return cfg
 
 
+def check_version(notebook_version: str) -> None:
+    """Say whether this notebook copy works with the downloaded code. Code changes arrive with section 2 (git pull and
+    reload); only a change of the notebook's cells needs the notebook reopened."""
+    def key(v: str) -> tuple:
+        return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+    if key(notebook_version) >= key(NOTEBOOK_REQUIRED):
+        print(f"✔ notebook v{notebook_version} works with the prosody code v{__version__} (updated {__updated__})")
+    else:
+        print(f"⚠ NOTEBOOK TOO OLD: this notebook is v{notebook_version}, the prosody code v{__version__} needs notebook "
+              f"v{NOTEBOOK_REQUIRED} or newer (its cells changed). Reopen it from GitHub (the link in "
+              "prosody-verifier/README.md); everything on Drive is kept.")
+
+
 def make_config(sc_cfg: "sc.Config", drive_base: str = "/content/drive/MyDrive") -> PVConfig:
     """This notebook's configuration. If sc_cfg is the baseline's own (as from sc.make_config), it is replaced by the
     sibling copy (prosody_sc_config) and the repository's output links are pointed at the sibling, so nothing this
@@ -141,7 +158,7 @@ def make_config(sc_cfg: "sc.Config", drive_base: str = "/content/drive/MyDrive")
     pv = PVConfig(sc_cfg=sc_cfg, drive_base=drive_base)
     for d in (pv.m0, pv.logs):
         d.mkdir(parents=True, exist_ok=True)
-    print("prosody-verifier outputs ->", pv.root)
+    print(f"prosody-verifier code v{__version__} | outputs ->", pv.root)
     print(f"baseline folder (read only) -> {baseline_root(sc_cfg)}; anything trained or generated with the baseline's "
           f"tools -> {sc_cfg.drive_root}")
     return pv
@@ -549,16 +566,14 @@ def m4_test_from_choice(pv: PVConfig) -> None:
     m4_test(pv, ch["k"], ch["rounds"], ch["best_of_n"])
 
 
-def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
-    """Score every M4 run of a split: the repository's scorer (BiLSTM meter, line count; CPU) and the M3 verifier in both
-    reading modes. A CPU runtime is enough (and cheaper); finished rows are kept, so it can run while generation goes on."""
-    _need_env(pv)
-    d = m4_dir(pv, split)
+def _score_runs(pv: PVConfig, d: pathlib.Path, label: str, workers: int = 0) -> None:
+    """Score every run folder under d/runs: the repository's scorer (BiLSTM meter, line count; CPU) and the M3 verifier
+    in both reading modes, into d/m3. Finished rows are kept, so it can run while generation goes on."""
     extra = ["--workers", str(workers)] if workers else []
     for run in sorted(p for p in (d / "runs").iterdir() if (p / "generations.jsonl").exists()):
         gens = run / "generations.jsonl"
         meta = run / "generations.meta.json"
-        finished = meta.exists() and json.loads(meta.read_text()).get("runs")
+        finished = (meta.exists() and json.loads(meta.read_text()).get("runs")) or not meta.exists()
         if not finished:
             print(f"{run.name}: generation has not finished yet; scoring what is there")
         scored = run / "scored.jsonl"
@@ -566,7 +581,14 @@ def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
             scored.unlink(missing_ok=True)          # the scorer rewrites its file: score the whole run again
             _score(pv, gens, scored, f"scoring {run.name}")
         pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", run.name, "--out-dir", d / "m3", *extra],
-               label=f"M4 verifier {run.name}")
+               label=f"{label} verifier {run.name}")
+
+
+def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
+    """Score every M4 run of a split: the repository's scorer (BiLSTM meter, line count; CPU) and the M3 verifier in both
+    reading modes. A CPU runtime is enough (and cheaper); finished rows are kept, so it can run while generation goes on."""
+    _need_env(pv)
+    _score_runs(pv, m4_dir(pv, split), "M4", workers)
 
 
 def m4_report(pv: PVConfig, split: str, reps: int = 1000) -> str:
@@ -590,6 +612,306 @@ def m4_report(pv: PVConfig, split: str, reps: int = 1000) -> str:
     except ImportError:
         print(text)
     return text
+
+
+# ---------------------------------------------------------------------------------------------- M5 (idea 2: self-training)
+# Folders (Drive):
+#   shaer-prosody/m5/labels/{train,eval,test}.jsonl      the verifier's labels of the corpus (rawī, meter, rhyme)
+#   shaer-prosody/m5/data/<variant>-<hash>/              training sets (train / eval / test Parquet) for sft/train_sft.py
+#   shaer-prosody/m5/variants.json                      variant -> its data folder, training run, starting adapter
+#   shaer-prosody/m5/test/runs/<system>/               single test samples of each system, scored like M4
+#   shaer-prosody/m5/selftrain/r<n>/                    2c: the search run on train prompts, the accepted poems
+#   shaer-repro-yehia-prosody/sft_outputs/train/prosody_m5_<variant>/   the checkpoints (never the baseline's folder)
+M5_SOURCE = "Shaer-AI/ashaar-with-enhanced-descriptions-baseform-final-sft-lte20-min500-splits"
+GRPO_ADAPTER = ("Shaer-AI/Shaer-adapters-grpo-short1k-no-trio-v2", "best-checkpoint")   # the authors' best GRPO stage
+M5_BASELINES = {"e1_shaer_adapter": "e1_released", "e3_retrained_yehia": "e3_retrained"}
+
+
+@dataclasses.dataclass
+class TrainConfig(sc.Config):
+    """The baseline's training configuration with extra environment variables for sft/train_sft.py (its data set, the
+    adapter to start from, the number of epochs): sc.start_training builds the subprocess environment from cfg.env()."""
+    extra_env: dict = dataclasses.field(default_factory=dict)
+
+    def env(self, **extra: str) -> dict:
+        return super().env(**{**self.extra_env, **extra})
+
+
+def m5_dir(pv: PVConfig) -> pathlib.Path:
+    d = pv.root / "m5"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _variants(pv: PVConfig) -> dict:
+    p = m5_dir(pv) / "variants.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def _variant_update(pv: PVConfig, variant: str, **fields) -> dict:
+    vs = _variants(pv)
+    vs[variant] = {**vs.get(variant, {}), **{k: (str(v) if isinstance(v, pathlib.Path) else v) for k, v in fields.items()}}
+    (m5_dir(pv) / "variants.json").write_text(json.dumps(vs, ensure_ascii=False, indent=1))
+    return vs[variant]
+
+
+def _variant(pv: PVConfig, variant: str) -> dict:
+    v = _variants(pv).get(variant)
+    if not v:
+        raise RuntimeError(f"no M5 variant {variant!r} yet: build it first (pv.m5_build(pvc, {variant!r}))")
+    return v
+
+
+def m5_relabel(pv: PVConfig, workers: int = 0) -> pathlib.Path:
+    """The verifier's labels of every poem of the corpus (CPU; about 1-2 h with 12 CPUs, longer on a 2-CPU runtime;
+    resumable). Labels made by another verifier or lexicon are set aside and made again."""
+    _need_env(pv)
+    out = m5_dir(pv) / "labels"
+    t0 = sc._start("M5: labelling the corpus with the verifier", "about 116k poems; every finished chunk is on Drive")
+    pv.run([HERE / "m5_data.py", "relabel", "--source", M5_SOURCE, "--out", out,
+            *(["--workers", str(workers)] if workers else [])], label="M5 relabel")
+    sc._finish(t0, f"M5 labels -> {out}")
+    return out
+
+
+def m5_build(pv: PVConfig, variant: str, base: str = "", accepted: pathlib.Path | None = None, mix: float = 1.0) -> pathlib.Path:
+    """Build a training set: "2a" (the rawī in every prompt), "2b" (2a on verifier-clean poems), or a 2c round (use
+    m5_selftrain, which calls this). Returns its folder; a set already built from the same inputs is reused."""
+    _need_env(pv)
+    record = m5_dir(pv) / "data" / f"{variant}.path"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    args = [HERE / "m5_data.py", "build", "--variant", variant, "--source", M5_SOURCE, "--labels", m5_dir(pv) / "labels",
+            "--out-root", m5_dir(pv) / "data", "--record", record]
+    if base:
+        args += ["--base", _variant(pv, base)["data"]]
+    if accepted:
+        args += ["--accepted", accepted, "--mix", str(mix)]
+    pv.run(args, label=f"M5 build {variant}")
+    data = pathlib.Path(record.read_text().strip())
+    _variant_update(pv, variant, data=data, root=_variant(pv, base).get("root", base) if base else variant)
+    print(f"M5 {variant}: {data}")
+    return data
+
+
+def m5_train(pv: PVConfig, variant: str, epochs: float | None = None, init_from: pathlib.Path | str | None = None,
+             gradient_checkpointing: bool = False, save_minutes: float = 10, eval_batch_size="auto") -> None:
+    """Fine-tune a variant with the baseline's training recipe and runner (sc.start_training: QLoRA on Yehia-7B-preview,
+    live progress, resume, verified checkpoints on Drive). Checkpoints go to
+    MyDrive/shaer-repro-yehia-prosody/sft_outputs/train/prosody_m5_<variant>/, a resume checkpoint about every 10
+    minutes. Re-running the cell resumes. epochs: None = the recipe's (2); init_from: an adapter folder to continue."""
+    _need_gpu("M5 training")
+    v = _variant(pv, variant)
+    cfg = training_config(pv, f"{TRAIN_PREFIX}m5_{variant.replace('-', '_')}")
+    extra = {"SFT_DATASET_ID": str(v["data"])}
+    if init_from:
+        extra.update(SFT_INIT_ADAPTER_PATH=str(init_from), SFT_INIT_FROM_ADAPTER="1")
+    if epochs:
+        extra["SFT_NUM_TRAIN_EPOCHS"] = str(epochs)
+    tcfg = TrainConfig(**{f.name: getattr(cfg, f.name) for f in dataclasses.fields(cfg)}, extra_env=extra)
+    for p in (tcfg.run_dir, tcfg.runs, tcfg.sft_outputs):       # the guard of prosody_sc_config, once more
+        if _inside(p, baseline_root(tcfg)):
+            raise RuntimeError(f"refusing to train into the baseline folder: {p}")
+    _variant_update(pv, variant, run_name=tcfg.run_name, run_dir=tcfg.run_dir, init_from=str(init_from or ""),
+                    epochs=epochs)
+    print(f"M5 {variant}: data {v['data']}\n  checkpoints -> {tcfg.run_dir}" + (f"\n  starting from {init_from}" if init_from else ""))
+    sc.checkpoint_report(tcfg)
+    sc.start_training(tcfg, gradient_checkpointing=gradient_checkpointing, save_minutes=save_minutes,
+                      eval_batch_size=eval_batch_size)
+
+
+def m5_best_checkpoint(pv: PVConfig, variant: str) -> pathlib.Path:
+    """The best checkpoint (lowest eval loss) of a finished M5 training run."""
+    v = _variant(pv, variant)
+    run_dir = pathlib.Path(v.get("run_dir") or "")
+    summary = run_dir / "run_summary.json"
+    if not summary.exists():
+        raise RuntimeError(f"M5 {variant}: training has not finished (no {summary}); run pv.m5_train(pvc, {variant!r})")
+    best = json.loads(summary.read_text()).get("best_eval_checkpoint") or ""
+    for cand in (pathlib.Path(best), run_dir / pathlib.Path(best).name):
+        if best and cand.is_dir():
+            return cand
+    raise RuntimeError(f"M5 {variant}: the best checkpoint {best!r} is not in {run_dir}")
+
+
+def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0) -> pathlib.Path:
+    """One sample per prompt for a system: a trained variant ("2a", "2b", "2c_r1", ...: its best checkpoint, prompts with
+    the rawī) or "grpo_v2" (the authors' best GRPO adapter, the paper's prompts). GPU; resumable."""
+    _need_env(pv)
+    _need_gpu("M5 generation")
+    if system == "grpo_v2":
+        name, data, adapter = "grpo_v2", M5_SOURCE, ["--adapter-repo", GRPO_ADAPTER[0], "--adapter-subfolder", GRPO_ADAPTER[1]]
+    else:
+        name, data = f"m5_{system}", _variant(pv, system)["data"]
+        adapter = ["--adapter-path", m5_best_checkpoint(pv, system)]
+    out = m5_dir(pv) / split / "runs" / name / "generations.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pv.run([HERE / "m4_decode.py", "sample", "--split", split, "--subset", str(subset), "--num-samples", "1", "--out", out,
+            "--base-model", pv.sc_cfg.base_model, "--dataset-id", data, *adapter], label=f"M5 generation {name}")
+    return out
+
+
+def m5_import_baselines(pv: PVConfig) -> list[str]:
+    """Copy the baseline's finished E1 (released adapter) and E3 (re-trained) test poems into m5/test/runs, read only
+    from the baseline's folder, so M5 compares against them on the same prompts without generating them again."""
+    import shutil
+    done = []
+    for name, scored in baseline_runs(pv).items():
+        if name not in M5_BASELINES:
+            continue
+        dst = m5_dir(pv) / "test" / "runs" / M5_BASELINES[name]
+        dst.mkdir(parents=True, exist_ok=True)
+        for f in ("generations.jsonl", "scored.jsonl"):
+            src = scored.parent / f
+            if src.exists() and (not (dst / f).exists() or _lines(dst / f) != _lines(src)):
+                shutil.copyfile(src, dst / f)
+        done.append(M5_BASELINES[name])
+    print("baselines in m5/test/runs:", ", ".join(done) or "none found (run E1 / E3 in the baseline notebook)")
+    return done
+
+
+def m5_score(pv: PVConfig, split: str = "test", workers: int = 0) -> None:
+    """Score the M5 runs like M4's: the repository's scorer and the verifier (both modes). CPU is enough."""
+    _need_env(pv)
+    _score_runs(pv, m5_dir(pv) / split, "M5", workers)
+
+
+def m5_report(pv: PVConfig, baseline: str = "", reps: int = 1000) -> str:
+    """Single samples of every M5 system against the baseline (default: E3 if present, else E1), paired on the test
+    prompts: m5/test/m5_report.md and m5_summary.json."""
+    _need_env(pv)
+    d = m5_dir(pv) / "test"
+    args = [HERE / "m5_report.py", "summarize", "--dir", d, "--labels", m5_dir(pv) / "labels" / "test.jsonl", "--reps", str(reps)]
+    if baseline:
+        args += ["--baseline", baseline]
+    train = pv.root / "m1" / "splits" / "train.jsonl"
+    if train.exists():
+        args += ["--train", train]
+    pv.run(args, label="M5 summary", quiet=True)
+    return _show(d / "m5_report.md")
+
+
+def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k: int = 1, rounds: int = 8,
+                 mix: float = 1.0, epochs: float = 1.0) -> None:
+    """One round of 2c (rejection-sampling fine-tuning). With the adapter of `base` ("2a", "2b", or the previous round,
+    e.g. "2c_r1"): (1) the hemistich search on a seeded sample of train prompts (GPU); (2) the quality gate (CPU);
+    (3) the training set: the accepted poems mixed with as many original train rows; (4) one epoch of training that
+    starts from `base`'s adapter (GPU). Each step resumes; a finished step is skipped."""
+    _need_env(pv)
+    variant = f"2c_r{round_no}"
+    root = _variant(pv, base).get("root", base)
+    root_data = _variant(pv, root)["data"]
+    adapter = m5_best_checkpoint(pv, base)
+    d = m5_dir(pv) / "selftrain" / f"r{round_no}"
+    gens = d / "runs" / "search" / "generations.jsonl"
+    gens.parent.mkdir(parents=True, exist_ok=True)
+    print(f"2c round {round_no}: prompts from {root} ({root_data}), adapter of {base} ({adapter})")
+    if _lines(gens) < prompts:
+        _need_gpu("the 2c search")
+        pv.run([HERE / "m4_decode.py", "search", "--split", "train", "--subset", str(prompts), "--subset-seed",
+                str(2026 + round_no), "--k", str(k), "--rounds", str(rounds), "--out", gens, "--base-model",
+                pv.sc_cfg.base_model, "--dataset-id", root_data, "--adapter-path", adapter], label=f"2c r{round_no} search")
+    accepted = d / "accepted.jsonl"
+    pv.run([HERE / "m5_data.py", "accept", "--generations", gens, "--source", M5_SOURCE, "--base", root_data,
+            "--out", accepted], label=f"2c r{round_no} gate")
+    summary = json.loads(accepted.with_suffix(".summary.json").read_text())
+    print(f"  accepted {summary['accepted']:,} of {summary['poems']:,} poems: {summary['reasons']}")
+    if summary["accepted"] == 0:
+        raise RuntimeError("no poem passed the gate: nothing to train on")
+    m5_build(pv, variant, base=root, accepted=accepted, mix=mix)
+    _variant_update(pv, variant, root=root, started_from=base)
+    m5_train(pv, variant, epochs=epochs, init_from=adapter)
+
+
+# ---------------------------------------------------------------------------------------------- M6 (quality study)
+def m6_dir(pv: PVConfig) -> pathlib.Path:
+    d = pv.root / "m6"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _show(path: pathlib.Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    try:
+        from IPython.display import Markdown, display
+        display(Markdown(text))
+    except ImportError:
+        print(text)
+    return text
+
+
+def m6_collect(pv: PVConfig, m4_conditions: tuple = ()) -> None:
+    """Gather the final systems (one poem per test prompt): the M4 test conditions (all, or those whose file name
+    contains one of m4_conditions, e.g. ("i0_single", "best_of_2", "i2_k1_r8")), every M5 test run, and the human
+    poems of the same prompts. Summarise M4's test runs first (pv.m4_report(pvc, "test")): it writes the selections."""
+    _need_env(pv)
+    args = [HERE / "m6_quality.py", "collect", "--out", m6_dir(pv), "--m4", m4_dir(pv, "test"), "--m5", m5_dir(pv) / "test"]
+    if m4_conditions:
+        args += ["--m4-conditions", ",".join(m4_conditions)]
+    pv.run(args, label="M6 collect", quiet=False)
+
+
+def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bool = False, max_cost_usd: float = 0.0,
+             workers: int = 6) -> None:
+    """The paper's LLM judge (five metrics, 1-5; paid, through OpenRouter: one poem is five calls) on the same
+    `limit_rows` prompts of every collected system (or of `names`). Start with dry_run=True (no call), then a small
+    limit_rows; finished poems are kept, so a larger limit later only adds poems. max_cost_usd stops each system's run."""
+    _need_env(pv)
+    d = m6_dir(pv)
+    pv.run([HERE / "m6_quality.py", "judge-input", "--out", d, *(["--names", ",".join(names)] if names else [])],
+           label="M6 judge input", quiet=True)
+    for p in sorted((d / "judge_input").glob("*.jsonl")):
+        if names and p.stem not in names:
+            continue
+        cmd = [pv.repo / "evaluation" / "run_llm_judge.py", "--generations", p, "--out-dir", d / "judge" / p.stem,
+               "--key", p.stem, "--workers", str(workers), "--limit-rows", str(limit_rows)]
+        if dry_run:
+            cmd.append("--dry-run")
+        if max_cost_usd:
+            cmd += ["--max-cost-usd", str(max_cost_usd)]
+        code = sc.run([pv.py, "-u", *cmd], label=f"M6 judge {p.stem}", cwd=pv.repo, env=pv.sc_cfg.env(), check=False,
+                      drop=(), stall_after=pv.sc_cfg.stall_seconds)
+        if code == 4:
+            print(f"■ {p.stem}: stopped at the cost limit; run again with a higher max_cost_usd to continue")
+        elif code not in (0,):
+            print(f"■ {p.stem}: the judge did not finish (exit {code}); run the cell again, it resumes")
+        if dry_run:
+            break
+
+
+def m6_human_sheet(pv: PVConfig, names: tuple, prompts: int = 40) -> pathlib.Path:
+    """A blinded rating sheet (m6/human/rating_sheet.csv; open it in Google Sheets) for `prompts` prompts x the given
+    systems, and its key (rating_key.json; keep it from the raters). Give each rater a copy; put the filled copies in
+    m6/human/filled/ as CSV."""
+    _need_env(pv)
+    pv.run([HERE / "m6_quality.py", "human-sheet", "--out", m6_dir(pv), "--names", ",".join(names), "--prompts",
+            str(prompts)], label="M6 human sheet", quiet=False)
+    (m6_dir(pv) / "human" / "filled").mkdir(parents=True, exist_ok=True)
+    return m6_dir(pv) / "human" / "rating_sheet.csv"
+
+
+def m6_human_score(pv: PVConfig) -> None:
+    """Unblind and summarise every filled sheet in m6/human/filled/*.csv."""
+    _need_env(pv)
+    sheets = sorted((m6_dir(pv) / "human" / "filled").glob("*.csv"))
+    if not sheets:
+        raise RuntimeError(f"no filled sheet in {m6_dir(pv) / 'human' / 'filled'} (download each rater's copy as CSV there)")
+    pv.run([HERE / "m6_quality.py", "human-score", "--out", m6_dir(pv), *[x for s in sheets for x in ("--sheet", s)]],
+           label="M6 human ratings", quiet=False)
+
+
+def m6_report(pv: PVConfig, baseline: str = "", reps: int = 1000) -> str:
+    """The quality table of the final systems: judge metrics, strict validity, copying and diversity, human ratings;
+    paired differences to the baseline. m6/m6_report.md and m6_summary.json."""
+    _need_env(pv)
+    d = m6_dir(pv)
+    args = [HERE / "m6_quality.py", "summarize", "--out", d, "--reps", str(reps)]
+    if baseline:
+        args += ["--baseline", baseline]
+    train = pv.root / "m1" / "splits" / "train.jsonl"
+    if train.exists():
+        args += ["--train", train]
+    pv.run(args, label="M6 summary", quiet=True)
+    return _show(d / "m6_report.md")
 
 
 def verify_poem(text: str, base_meter: str, form: str = "تام", requested_lines: int | None = None,

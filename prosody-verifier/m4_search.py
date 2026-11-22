@@ -313,6 +313,8 @@ def state_record(s: PoemState, row: dict, config: dict) -> dict:
     accounting."""
     rec = {k: row.get(k) for k in ("id", "base_meter", "form", "requested_bayts", "requested_num_lines", "length_bucket",
                                    "description", "enhanced_description", "reference_completion")}
+    if row.get("requested_rawi") is not None:          # M5 prompts that name the rhyme letter
+        rec["requested_rawi"] = row["requested_rawi"]
     rec.update({
         "sample_idx": int(row.get("sample_idx", 0) or 0), "generated_text": "\n".join(s.lines),
         "gen_tokens": s.gen_tokens, "finished_with_eos": True,
