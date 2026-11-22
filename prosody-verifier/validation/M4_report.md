@@ -144,7 +144,7 @@ accepted a hemistich the evaluation rejects.
 
 ### 2c. The whole pipeline
 
-I ran it with a tiny random Llama saved with the real ALLaM tokenizer (byte-identical to Yehia's) and a random LoRA
+I ran it with a tiny random Llama saved with a tokenizer byte-identical to Yehia's and a random LoRA
 adapter.
 
 **Command lines on CPU:** `m4_decode.py sample` and `search`, then the repository's scorer (`meter_score_batched.py`, the

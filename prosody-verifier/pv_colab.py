@@ -16,7 +16,7 @@ Drive folders. What is new lives in this folder and writes to its own Drive fold
       m0/m0_report.md, m0_summary.json                 the combined table
       logs/
 
-Baseline outputs are only read, from where the baseline notebook wrote them (MyDrive/shaer-repro-<model>/runs/...).
+Baseline outputs are only read, from where the baseline notebook wrote them (MyDrive/shaer-repro-yehia/runs/...).
 
 Checkpoint policy for later training runs (none in M0 or idea 1): save about every 10 minutes of wall-clock time, keep the
 two most recent checkpoints plus the best one.
@@ -36,9 +36,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 DRIVE_FOLDER = "shaer-prosody"
 RELEASED_TEST_ROWS = 3481
 # baseline run folders -> system names used in the M0 tables
-SYSTEM_NAMES = {("yehia", "e0"): "e0_released_shaer", ("yehia", "e1"): "e1_shaer_adapter", ("yehia", "e2"): "e2_yehia_base",
-                ("yehia", "e3"): "e3_retrained_yehia", ("allam", "e1"): "e1_adapter_on_allam", ("allam", "e2"): "e2_allam_base",
-                ("allam", "e3"): "e3_retrained_allam"}
+SYSTEM_NAMES = {"e0": "e0_released_shaer", "e1": "e1_shaer_adapter", "e2": "e2_yehia_base", "e3": "e3_retrained_yehia"}
+BASELINE_FOLDER = "shaer-repro-yehia"      # the baseline notebook's Drive folder for Navid-AI/Yehia-7B-preview
 
 
 @dataclasses.dataclass
@@ -72,18 +71,18 @@ class PVConfig:
 
 
 # ---------------------------------------------------------------------------------------------- never write into the baseline
-# The baseline notebook keeps its fine-tuned adapter and its generations in MyDrive/shaer-repro-<tag>/:
+# The baseline notebook keeps its fine-tuned adapter and its generations in MyDrive/shaer-repro-yehia/:
 #   sft_outputs/train/<RUN_NAME>/checkpoint-*, run_summary.json   (the E3 adapter; RUN_NAME is paper_repro_a100 by default)
 #   runs/e0 ... runs/e3/{generations,scored}.jsonl, summary.json    (sc.run_generation(cfg, "e3") writes runs/e3)
 # This notebook only reads those folders. Anything it trains or generates through the baseline's machinery (sc.start_training,
-# sc.run_generation, the repository's sft/outputs and runs/ links) goes to the sibling MyDrive/shaer-repro-<tag>-prosody/,
+# sc.run_generation, the repository's sft/outputs and runs/ links) goes to the sibling MyDrive/shaer-repro-yehia-prosody/,
 # with the same layout, under run names that start with "prosody_".
 SIBLING_SUFFIX = "-prosody"
 TRAIN_PREFIX = "prosody_"
 
 
 def baseline_root(sc_cfg: "sc.Config") -> pathlib.Path:
-    """The baseline's Drive folder (MyDrive/shaer-repro-<tag>), whether sc_cfg is the baseline's config or the sibling's."""
+    """The baseline's Drive folder (MyDrive/shaer-repro-yehia), whether sc_cfg is the baseline's config or the sibling's."""
     root = pathlib.Path(sc_cfg.drive_root)
     return root.with_name(root.name[: -len(SIBLING_SUFFIX)]) if root.name.endswith(SIBLING_SUFFIX) else root
 
@@ -95,7 +94,7 @@ def _inside(path: pathlib.Path, root: pathlib.Path) -> bool:
 
 def prosody_sc_config(sc_cfg: "sc.Config", run_name: str = f"{TRAIN_PREFIX}main") -> "sc.Config":
     """A copy of the baseline's configuration whose every output folder (runs/, logs/, sft_outputs/, the training run
-    folder and its local copy on the VM) is in the sibling MyDrive/shaer-repro-<tag>-prosody/, beside the baseline's.
+    folder and its local copy on the VM) is in the sibling MyDrive/shaer-repro-yehia-prosody/, beside the baseline's.
     Refuses run names that do not start with "prosody_" or that a baseline run already uses."""
     if not re.fullmatch(rf"{TRAIN_PREFIX}[A-Za-z0-9_.-]+", run_name or ""):
         raise ValueError(f"run name {run_name!r}: a run of this notebook must be named {TRAIN_PREFIX}<something> "
@@ -120,7 +119,7 @@ def prosody_sc_config(sc_cfg: "sc.Config", run_name: str = f"{TRAIN_PREFIX}main"
 
 def training_config(pv: "PVConfig", run_name: str) -> "sc.Config":
     """The configuration for a fine-tuning run of this research (idea 2 and later): sc.start_training(training_config(pvc,
-    "prosody_selftrain_r1")) writes its checkpoints to MyDrive/shaer-repro-<tag>-prosody/sft_outputs/train/<run_name>/,
+    "prosody_selftrain_r1")) writes its checkpoints to MyDrive/shaer-repro-yehia-prosody/sft_outputs/train/<run_name>/,
     never into the baseline's sft_outputs, and sc.run_generation(..., "e3") with it writes runs/e3 of the sibling."""
     cfg = prosody_sc_config(pv.sc_cfg, run_name)
     sc.sync_repo(cfg)                    # the repository's sft/outputs and runs/ links now point at the sibling
@@ -132,6 +131,9 @@ def make_config(sc_cfg: "sc.Config", drive_base: str = "/content/drive/MyDrive")
     """This notebook's configuration. If sc_cfg is the baseline's own (as from sc.make_config), it is replaced by the
     sibling copy (prosody_sc_config) and the repository's output links are pointed at the sibling, so nothing this
     notebook runs can write into the baseline's adapter or generations."""
+    if sc_cfg.base_model != sc.YEHIA:
+        raise ValueError(f"this research uses {sc.YEHIA} (the base model of the released Shaer adapter): set BASE_MODEL to "
+                         f"it in the configuration cell (not {sc_cfg.base_model!r})")
     if not pathlib.Path(sc_cfg.drive_root).name.endswith(SIBLING_SUFFIX):
         sc_cfg = prosody_sc_config(sc_cfg)
         if pathlib.Path(sc_cfg.repo_dir).exists():
@@ -183,18 +185,16 @@ def _score(pv: PVConfig, gens: pathlib.Path, scored: pathlib.Path, label: str) -
 def baseline_runs(pv: PVConfig) -> dict[str, pathlib.Path]:
     """Complete scored baseline runs found on Drive: {system name: scored.jsonl}. Incomplete runs are listed and skipped."""
     found: dict[str, pathlib.Path] = {}
-    for tag in ("yehia", "allam"):
-        runs = pathlib.Path(pv.drive_base, f"shaer-repro-{tag}", "runs")
-        for step in ("e0", "e1", "e2", "e3"):
-            name = SYSTEM_NAMES.get((tag, step))
-            scored, gens = runs / step / "scored.jsonl", runs / step / "generations.jsonl"
-            if not name or not scored.exists():
-                continue
-            n_scored, n_gens = _lines(scored), _lines(gens)
-            if n_gens and n_scored < n_gens:
-                print(f"  skipping {name}: scored.jsonl has {n_scored:,} of {n_gens:,} rows (finish the baseline's scoring first)")
-                continue
-            found[name] = scored
+    runs = pathlib.Path(pv.drive_base, BASELINE_FOLDER, "runs")
+    for step, name in SYSTEM_NAMES.items():
+        scored, gens = runs / step / "scored.jsonl", runs / step / "generations.jsonl"
+        if not scored.exists():
+            continue
+        n_scored, n_gens = _lines(scored), _lines(gens)
+        if n_gens and n_scored < n_gens:
+            print(f"  skipping {name}: scored.jsonl has {n_scored:,} of {n_gens:,} rows (finish the baseline's scoring first)")
+            continue
+        found[name] = scored
     return found
 
 
@@ -383,7 +383,7 @@ def m3_dir(pv: PVConfig) -> pathlib.Path:
 
 def m3_systems(pv: PVConfig) -> dict[str, pathlib.Path]:
     """What M3 re-scores: the human reference poems and the released Shaer poems (both prepared by M0), and every
-    complete baseline run on Drive (E1-E3, Yehia or ALLaM)."""
+    complete baseline run on Drive (E1-E3)."""
     runs = baseline_runs(pv)
     e0 = runs.pop("e0_released_shaer", None) or (pv.m0 / "sources" / "e0" / "scored.jsonl")
     ref = pv.m0 / "reference" / "scored.jsonl"
@@ -468,9 +468,6 @@ def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samp
                 rounds: int = 1, batch_size: str = "auto", extra: list | None = None, folder: str = "") -> pathlib.Path:
     """One M4 generation run with the released Shaer adapter on Yehia-7B-preview (resumable: finished poems are on Drive)."""
     cfg = pv.sc_cfg
-    if not cfg.paper_flow:
-        raise RuntimeError("M4 uses the released Shaer adapter, which was trained on Yehia-7B-preview: set BASE_MODEL to "
-                           "Navid-AI/Yehia-7B-preview in the configuration cell (it needs the gated-model access and HF_TOKEN)")
     _need_env(pv)
     _need_gpu("M4 generation")
     out = m4_dir(pv, folder or split) / "runs" / run / "generations.jsonl"

@@ -81,7 +81,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--adapter-path", default="")
     ap.add_argument("--adapter-repo", default=GST.ADAPTER_REPO_ID)
     ap.add_argument("--adapter-subfolder", default=GST.ADAPTER_SUBFOLDER)
-    ap.add_argument("--allow-adapter-mismatch", action="store_true")
     ap.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--dataset-id", default=GST.DATASET_ID)
@@ -127,6 +126,7 @@ def prompt_rows(args) -> list[dict]:
 def load_model(args):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+    args.allow_adapter_mismatch = False         # the released adapter runs only on its own base model, Yehia-7B-preview
     GST.check_adapter_matches_base(args)
     token = os.getenv("HF_TOKEN") or None
     use_cuda = torch.cuda.is_available() and args.device in ("auto", "cuda")

@@ -81,3 +81,9 @@ def test_make_config_moves_the_repository_links_off_the_baseline(baseline, tmp_p
     cfg = pv.training_config(pvc, "prosody_selftrain_r1")
     assert cfg.run_dir.parent == sib / "sft_outputs" / "train"
     assert pvc.root == tmp_path / "MyDrive" / "shaer-prosody"
+
+
+def test_only_the_paper_base_model_is_accepted(baseline, tmp_path):
+    import dataclasses
+    with pytest.raises(ValueError):
+        pv.make_config(dataclasses.replace(baseline, base_model="some-org/another-7b"), drive_base=str(tmp_path / "MyDrive"))
