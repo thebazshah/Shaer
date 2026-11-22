@@ -7,6 +7,10 @@ All code for this line lives in this folder. Everything runs from one notebook, 
 on Colab (A100 preferred, L4 works; M0 and M1 need only a CPU runtime). Outputs go to `MyDrive/shaer-prosody/`; the
 baseline's outputs in `MyDrive/shaer-repro-<model>/` are only read.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/thebazshah/Shaer/blob/dev/prosody-verifier/prosody_main.ipynb)
+Open the latest notebook in Colab: https://colab.research.google.com/github/thebazshah/Shaer/blob/dev/prosody-verifier/prosody_main.ipynb
+(it opens the `dev` branch's copy; if you save it from Colab, save it under another name so a stale copy never replaces it).
+
 ## The verifier (`prosody/`, standard library only)
 
 | Module | What |
