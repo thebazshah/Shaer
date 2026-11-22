@@ -23,8 +23,8 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.16.0"
-__updated__ = "2026-11-21 05:40 UTC"
+__version__ = "1.16.1"
+__updated__ = "2026-11-22 17:31 UTC"
 NOTEBOOK_REQUIRED = "1.16.0"
 
 import collections
@@ -580,6 +580,15 @@ def run_e0(cfg: Config) -> None:
     _finish(t0, f"E0 (results in {cfg.runs / 'e0'})")
 
 
+def _lines(path: pathlib.Path) -> int:
+    """Number of non-empty lines of a JSONL file (0 if it does not exist)."""
+    try:
+        with open(path, "rb") as f:
+            return sum(1 for line in f if line.strip())
+    except OSError:
+        return 0
+
+
 def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> None:
     """E1 (released adapter), E2 (untuned base model) or E3 (adapter trained here): generate, score, summarise."""
     extra_args = list(extra_args or [])
@@ -612,9 +621,17 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
     _warn_if_gpu_shared(f"{step.upper()} generation")
     t0 = _start(f"{step.upper()}: generating the test poems with {what}",
                 "model download + load first (about 5-10 min on a fresh runtime), then the progress bar with an ETA")
-    run([cfg.py, "-u", "evaluation/generate_shaer_test.py", *adapter_args, "--base-model", cfg.base_model,
-         "--out", f"runs/{step}/generations.jsonl", "--num-samples", str(cfg.num_samples), "--batch-size", cfg.gen_batch_size,
-         *extra_args], label=f"{step.upper()} generation", cwd=cfg.repo_dir, env=cfg.env(), stall_after=cfg.stall_seconds)
+    try:
+        run([cfg.py, "-u", "evaluation/generate_shaer_test.py", *adapter_args, "--base-model", cfg.base_model,
+             "--out", f"runs/{step}/generations.jsonl", "--num-samples", str(cfg.num_samples), "--batch-size", cfg.gen_batch_size,
+             *extra_args], label=f"{step.upper()} generation", cwd=cfg.repo_dir, env=cfg.env(), stall_after=cfg.stall_seconds,
+            stop_on_interrupt=True)          # the stop button stops the generator too (not left running, writing the same file)
+    except KeyboardInterrupt:
+        done = _lines(cfg.runs / step / "generations.jsonl")
+        print(f"■ {step.upper()} generation stopped: {done:,} poems are saved in {cfg.runs / step / 'generations.jsonl'} "
+              "(the batch that was running is generated again). Run this cell again to continue from there.", flush=True)
+        flush_drive()                            # get the saved poems onto Drive now
+        raise                                    # Run all stops here
     _score_and_summarise(cfg, step)
     _finish(t0, f"{step.upper()} (results in {cfg.runs / step})")
 
