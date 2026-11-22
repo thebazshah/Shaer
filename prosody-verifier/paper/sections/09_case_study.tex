@@ -20,8 +20,8 @@ pattern, and teachers would lose trust in the book. The publisher has two editor
 of cloud GPU time.
 
 \textbf{Option A: the generator and its published metric.} The team generates one poem per request and keeps the poems
-that pass the base criterion. By our measurements on short poems, most requests produce a poem that passes, so the
-team quickly has 200 ``validated'' poems. But only \val{gEzeroStrictGivenBase}\% of poems that pass this criterion are
+that pass the base criterion. By our measurements, \val{vEzeroBaseBilstm}\% of the released poems pass it, so
+the team quickly has 200 ``validated'' poems. But only \val{gEzeroStrictGivenBase}\% of poems that pass this criterion are
 strictly valid. The editors must therefore scan every poem by hand and will reject most of them, often for a rhyme
 fault that no metric flagged. The saving from automation disappears.
 

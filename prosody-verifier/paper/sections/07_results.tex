@@ -169,7 +169,7 @@ not specific to the released poems. Of the poems that pass the base criterion \e
 
 \textbf{H2 is supported.} \val{mEzeroStrictValid}\% of the released poems are strictly valid, against
 \val{mRefStrictValid}\% of the human poems; the paired difference is \val{mEzeroVsRefStrict}\pp{} (95\% CI), and
-McNemar's test rejects equality ($p<0.001$). Every component contributes: the meter fails more often than in human poems,
+McNemar's test rejects equality ($\chi^2 = \val{mcEzeroChi}$, $p$ \val{mcEzeroP}). Every component contributes: the meter fails more often than in human poems,
 the rhyme passes in only \val{mEzeroRhymeOk}\% of poems against \val{mRefRhymeOk}\%, and 16.6\% of poems have the wrong
 length. Rhyme, which Shaer does not measure, is the largest single weakness. Binding mode, which also checks the
 model's own vowel marks, lowers E0 to \val{mEzeroBindStrict}\%: the model often writes vowels that contradict the
@@ -234,7 +234,7 @@ R3 & E1 base-meter accuracy \val{repEOneAcc}\% vs.\ 95.17\% & Not reproduced \\
 R4 & E3 loss \val{ourBestLoss} vs.\ 2.2074; length metrics match & Partly \\
 \midrule
 H1 & Verifier--BiLSTM gap 41.6 vs.\ 15.2 points; no reading \val{mEzeroNoReading}\% vs.\ \val{mRefNoReading}\% & Supported \\
-H2 & $\Delta = \val{mEzeroVsRefStrict}$\pp, $p<0.001$ & Supported \\
+H2 & $\Delta = \val{mEzeroVsRefStrict}$\pp, McNemar $p$ \val{mcEzeroP} & Supported \\
 H3 & All length coefficients $<0$, CIs exclude 0 & Supported \\
 H4 & Search vs.\ matched best-of-$N$: \TBD & \pending{pending M4} \\
 H5 & Gain under BiLSTM and binding mode: \TBD & \pending{pending M4} \\

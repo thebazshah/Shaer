@@ -296,6 +296,19 @@ def main() -> None:
         R["agreement"][n] = agr
         V = variants(L, B)
         # of the poems that pass the paper's own criterion (BiLSTM on every bayt, exact length), the share strictly valid
+        # McNemar's test against the human poems of the same prompts (strict validity)
+        if n == "reference":
+            ref_full = V["full"]
+        elif n in dict(SYSTEMS):
+            common = [i for i in ids if i in ref_full]
+            n01 = sum(1 for i in common if not V["full"][i] and ref_full[i])
+            n10 = sum(1 for i in common if V["full"][i] and not ref_full[i])
+            from scipy.stats import binomtest, chi2 as _chi2
+            pval = (binomtest(n10, n01 + n10, 0.5).pvalue if n01 + n10 < 25
+                    else float(_chi2.sf((n01 - n10) ** 2 / (n01 + n10), 1))) if n01 + n10 else 1.0
+            R.setdefault("mcnemar_vs_reference", {})[n] = {"n01": n01, "n10": n10, "p": pval}
+            put(f"mc{TAG[n]}Chi", (n01 - n10) ** 2 / max(1, n01 + n10), "{:,.1f}")
+            put(f"mc{TAG[n]}P", "$<$0.001" if pval < 0.001 else f"{pval:.3f}", "{}")
         passed = [i for i in ids if V["base_bilstm"].get(i)]
         if passed:
             put(f"g{TAG[n]}StrictGivenBase", 100 * sum(bool(V["full"].get(i)) for i in passed) / len(passed))
