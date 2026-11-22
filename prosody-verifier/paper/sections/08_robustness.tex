@@ -5,8 +5,8 @@
 Table~\ref{tab:nested} compares three nested versions of the structural model \eqref{eq:logit} for each criterion:
 S1 with the system only, S2 adding the requested length and S3 adding the meter. Fig.~\ref{fig:nested} plots their fit.
 Length adds by far the most to both models, and the meter adds a smaller but significant amount; S3 has the lowest AIC
-under both criteria. The system effect alone explains about twice as much under the extended criterion as under the
-base criterion, which is H1 seen from another angle: the base criterion hides most of the difference between the human
+under both criteria. The system effect alone explains about one and a half times as much under the extended criterion
+(\val{nestExtSOneRsq} against \val{nestBaseSOneRsq}), which is H1 seen from another angle: the base criterion hides most of the difference between the human
 and generated poems.
 
 \begin{table}[t]
@@ -77,8 +77,10 @@ samples, which stay near zero under every specification that keeps the part they
 
 \subsection{Subsample checks}
 \textbf{Independent generations.} The findings on the released poems were repeated on our own poems, E1 (released
-adapter) and E3 (re-trained). Both have a large gap between the BiLSTM and the verifier, a strict-validity rate far
-below the human poems, and the same decline with length (Tables~\ref{tab:m3} and~\ref{tab:variants}).
+adapter) and E3 (re-trained). E1 shows the same picture: a large gap between the BiLSTM and the verifier
+(\val{mEoneBilstmBaytOk}\% against \val{mEoneBaytOk}\% of bayts), strict validity of \val{mEoneStrictValid}\% against
+\val{mRefStrictValid}\% for the human poems (McNemar $p$ \val{mcEoneP}), and the same decline with length, from
+\val{mEoneLenA}\% for 1--3 bayts to \val{mEoneLenD}\% for 11--20 (Tables~\ref{tab:m3} and~\ref{tab:variants}).
 \textbf{Short poems.} Restricted to the 1,668 prompts of 1--3 bayts, where length errors are rare, E0 is still strictly
 valid for only \val{mEzeroLenA}\% against \val{mRefLenA}\% of human poems, so the gap is not produced by long poems
 alone.

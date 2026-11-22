@@ -372,6 +372,7 @@ def main() -> None:
             models[outcome] = {"coef": dict(zip(cols, beta.tolist())), "ci": {c: [float(l), float(h)] for c, l, h in zip(cols, lo, hi)},
                                "loglik": ll, "loglik_null": ll0, "mcfadden_r2": 1 - ll / ll0, "aic": 2 * len(cols) - 2 * ll,
                                "n": int(len(y)), "positive_rate": float(p0)}
+        put("lrSystems", ", ".join(SYS_SHORT.get(s, "E0") for s in sys_levels if s != "reference"), "{}")
         R["logit"] = {"columns": cols, "reference_levels": {"system": ref_sys, "length": "1-3", "meter": "tawil"}, "models": models}
         for outcome, M in models.items():
             O = "Base" if outcome == "base" else "Ext"

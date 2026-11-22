@@ -1,0 +1,2827 @@
+{
+ "reproduction": {
+  "e0": {
+   "n": 3481,
+   "meter_conformity": 0.9064161179913091,
+   "base_meter_accuracy_pct": 95.1738006320023,
+   "base_meter_accuracy_majority_pct": 98.76472278081012,
+   "exact_count_accuracy_pct": 83.39557598391266,
+   "count_adherence": 0.9791640830698612
+  },
+  "e1": {
+   "n": 3481,
+   "meter_conformity": 0.6612646818124706,
+   "base_meter_accuracy_pct": 80.14938236139041,
+   "base_meter_accuracy_majority_pct": 87.01522550991095,
+   "exact_count_accuracy_pct": 82.07411663315139,
+   "count_adherence": 0.9763744252115112
+  },
+  "e2": {
+   "n": 3481,
+   "meter_conformity": 0.14348286739157906,
+   "base_meter_accuracy_pct": 26.860097673082446,
+   "base_meter_accuracy_majority_pct": 27.750646365986785,
+   "exact_count_accuracy_pct": 42.31542660155128,
+   "count_adherence": 0.7548810447552559
+  },
+  "e3": {
+   "n": 3481,
+   "meter_conformity": 0.6323746348842572,
+   "base_meter_accuracy_pct": 78.62683137029589,
+   "base_meter_accuracy_majority_pct": 85.83740304510198,
+   "exact_count_accuracy_pct": 85.2915828784832,
+   "count_adherence": 0.983298603934066
+  }
+ },
+ "test_loss": 2.3146567344665527,
+ "training": {
+  "eval": [
+   [
+    0,
+    3.0589101314544678
+   ],
+   [
+    200,
+    2.4563119411468506
+   ],
+   [
+    400,
+    2.4187912940979004
+   ],
+   [
+    600,
+    2.404583692550659
+   ],
+   [
+    800,
+    2.3999109268188477
+   ],
+   [
+    1000,
+    2.3848936557769775
+   ],
+   [
+    1200,
+    2.3911731243133545
+   ],
+   [
+    1400,
+    2.403771162033081
+   ],
+   [
+    1600,
+    2.3752329349517822
+   ],
+   [
+    1800,
+    2.3757877349853516
+   ],
+   [
+    2000,
+    2.343216896057129
+   ],
+   [
+    2200,
+    2.326890707015991
+   ],
+   [
+    2400,
+    2.3204586505889893
+   ],
+   [
+    2600,
+    2.368521213531494
+   ],
+   [
+    2800,
+    2.381211996078491
+   ],
+   [
+    3000,
+    2.3802449703216553
+   ],
+   [
+    3200,
+    2.3806865215301514
+   ],
+   [
+    3400,
+    2.4032087326049805
+   ],
+   [
+    3600,
+    2.4098269939422607
+   ],
+   [
+    3800,
+    2.4212093353271484
+   ],
+   [
+    4000,
+    2.4386045932769775
+   ],
+   [
+    4200,
+    2.439502000808716
+   ]
+  ],
+  "best_step": 2400,
+  "best_eval_loss": 2.3204586505889893,
+  "final_step": 4230
+ },
+ "m3_reps": 5000,
+ "systems": {
+  "reference": {
+   "label": "Human",
+   "letters": {
+    "strict_valid": [
+     54.93,
+     53.32,
+     56.54
+    ],
+    "meter_ok": [
+     57.08,
+     55.47,
+     58.69
+    ],
+    "meter_ok_any_form": [
+     59.44,
+     57.86,
+     61.02
+    ],
+    "rhyme_ok": [
+     93.13,
+     92.3,
+     93.91
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     82.09,
+     81.02,
+     83.16
+    ],
+    "bayt_ok_any_form": [
+     85.8,
+     84.97,
+     86.61
+    ],
+    "no_reading": [
+     5.18,
+     4.64,
+     5.72
+    ],
+    "bilstm_bayt_ok": [
+     97.3,
+     96.71,
+     97.83
+    ]
+   },
+   "binding": {
+    "strict_valid": [
+     52.48,
+     50.85,
+     54.09
+    ],
+    "meter_ok": [
+     54.67,
+     53.06,
+     56.31
+    ],
+    "meter_ok_any_form": [
+     57.25,
+     55.64,
+     58.86
+    ],
+    "rhyme_ok": [
+     92.3,
+     91.44,
+     93.16
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     80.85,
+     79.73,
+     81.94
+    ],
+    "bayt_ok_any_form": [
+     84.61,
+     83.74,
+     85.45
+    ],
+    "no_reading": [
+     9.77,
+     9.09,
+     10.51
+    ],
+    "bilstm_bayt_ok": [
+     97.3,
+     96.71,
+     97.83
+    ]
+   },
+   "margin_inf": {
+    "strict_valid": [
+     69.72,
+     68.2,
+     71.24
+    ],
+    "meter_ok": [
+     73.11,
+     71.67,
+     74.52
+    ],
+    "meter_ok_any_form": [
+     76.99,
+     75.61,
+     78.31
+    ],
+    "rhyme_ok": [
+     93.13,
+     92.3,
+     93.91
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     88.89,
+     87.91,
+     89.84
+    ],
+    "bayt_ok_any_form": [
+     92.72,
+     92.04,
+     93.35
+    ],
+    "no_reading": [
+     5.18,
+     4.64,
+     5.72
+    ],
+    "bilstm_bayt_ok": [
+     97.3,
+     96.71,
+     97.83
+    ]
+   },
+   "by_length": {
+    "1-3": {
+     "poems": 1668,
+     "strict_valid": 70.5,
+     "meter_ok": 72.3,
+     "rhyme_ok": 96.58,
+     "count_exact": 100.0,
+     "bayt_ok": 81.77,
+     "bilstm_bayt_ok": 97.24
+    },
+    "4-6": {
+     "poems": 805,
+     "strict_valid": 50.19,
+     "meter_ok": 52.67,
+     "rhyme_ok": 92.42,
+     "count_exact": 100.0,
+     "bayt_ok": 80.3,
+     "bilstm_bayt_ok": 96.44
+    },
+    "7-10": {
+     "poems": 473,
+     "strict_valid": 41.44,
+     "meter_ok": 43.55,
+     "rhyme_ok": 91.75,
+     "count_exact": 100.0,
+     "bayt_ok": 82.13,
+     "bilstm_bayt_ok": 97.17
+    },
+    "11-20": {
+     "poems": 535,
+     "strict_valid": 25.42,
+     "meter_ok": 28.22,
+     "rhyme_ok": 84.67,
+     "count_exact": 100.0,
+     "bayt_ok": 83.08,
+     "bilstm_bayt_ok": 97.8
+    }
+   },
+   "issues": {
+    "ita": 4.22,
+    "rawi": 3.48,
+    "sinad_ridf": 3.27,
+    "sinad_tasis": 2.61,
+    "arud_changes": 1.75,
+    "darb_changes": 1.41,
+    "israf": 0.66,
+    "radif_missing": 0.14,
+    "mutlaqa_muqayyada": 0.09,
+    "iqwa": 0.03
+   },
+   "vs_reference": null,
+   "by_meter": {
+    "tawil": {
+     "poems": 841,
+     "strict_valid": 65.64,
+     "meter_ok": 67.78,
+     "rhyme_ok": 93.58,
+     "bayt_ok": 89.65,
+     "bilstm_bayt_ok": 98.2
+    },
+    "kamil": {
+     "poems": 649,
+     "strict_valid": 59.48,
+     "meter_ok": 61.63,
+     "rhyme_ok": 94.92,
+     "bayt_ok": 82.7,
+     "bilstm_bayt_ok": 97.74
+    },
+    "basit": {
+     "poems": 529,
+     "strict_valid": 61.25,
+     "meter_ok": 63.52,
+     "rhyme_ok": 95.09,
+     "bayt_ok": 84.43,
+     "bilstm_bayt_ok": 97.75
+    },
+    "wafir": {
+     "poems": 340,
+     "strict_valid": 60.88,
+     "meter_ok": 63.53,
+     "rhyme_ok": 93.82,
+     "bayt_ok": 86.95,
+     "bilstm_bayt_ok": 94.93
+    },
+    "khafif": {
+     "poems": 295,
+     "strict_valid": 50.85,
+     "meter_ok": 52.2,
+     "rhyme_ok": 95.25,
+     "bayt_ok": 83.43,
+     "bilstm_bayt_ok": 97.61
+    },
+    "sari": {
+     "poems": 216,
+     "strict_valid": 39.35,
+     "meter_ok": 40.28,
+     "rhyme_ok": 95.83,
+     "bayt_ok": 74.54,
+     "bilstm_bayt_ok": 96.88
+    },
+    "mutaqarib": {
+     "poems": 156,
+     "strict_valid": 33.97,
+     "meter_ok": 36.54,
+     "rhyme_ok": 90.38,
+     "bayt_ok": 71.45,
+     "bilstm_bayt_ok": 97.39
+    },
+    "ramal": {
+     "poems": 138,
+     "strict_valid": 25.36,
+     "meter_ok": 26.81,
+     "rhyme_ok": 87.68,
+     "bayt_ok": 63.47,
+     "bilstm_bayt_ok": 97.71
+    },
+    "rajaz": {
+     "poems": 137,
+     "strict_valid": 27.01,
+     "meter_ok": 31.39,
+     "rhyme_ok": 72.26,
+     "bayt_ok": 57.95,
+     "bilstm_bayt_ok": 94.44
+    },
+    "munsarih": {
+     "poems": 84,
+     "strict_valid": 39.29,
+     "meter_ok": 39.29,
+     "rhyme_ok": 96.43,
+     "bayt_ok": 78.54,
+     "bilstm_bayt_ok": 97.17
+    },
+    "mujtath": {
+     "poems": 61,
+     "strict_valid": 57.38,
+     "meter_ok": 62.3,
+     "rhyme_ok": 88.52,
+     "bayt_ok": 81.97,
+     "bilstm_bayt_ok": 95.92
+    },
+    "hazaj": {
+     "poems": 18,
+     "strict_valid": 44.44,
+     "meter_ok": 50.0,
+     "rhyme_ok": 94.44,
+     "bayt_ok": 68.93,
+     "bilstm_bayt_ok": 92.23
+    },
+    "madid": {
+     "poems": 17,
+     "strict_valid": 41.18,
+     "meter_ok": 41.18,
+     "rhyme_ok": 94.12,
+     "bayt_ok": 75.27,
+     "bilstm_bayt_ok": 94.62
+    }
+   },
+   "first_broken_foot": {
+    "1": 52.03,
+    "2": 27.93,
+    "3": 16.15,
+    "4": 3.89
+   },
+   "bayt_ok_by_position": {
+    "1": 82.1,
+    "2": 81.92,
+    "3": 82.27,
+    "4": 81.91,
+    "5": 83.0,
+    "6": 81.86,
+    "7": 82.24,
+    "8": 82.51,
+    "9": 83.38,
+    "10+": 81.48
+   },
+   "official": {
+    "n": 3481,
+    "meter_conformity": 0.9482,
+    "base_meter_accuracy_pct": 96.9262,
+    "base_meter_accuracy_majority_pct": 97.472,
+    "exact_count_accuracy_pct": 100.0,
+    "count_adherence": 1.0
+   }
+  },
+  "e0_released_shaer": {
+   "label": "E0 released",
+   "letters": {
+    "strict_valid": [
+     8.99,
+     8.04,
+     9.94
+    ],
+    "meter_ok": [
+     15.51,
+     14.31,
+     16.72
+    ],
+    "meter_ok_any_form": [
+     15.77,
+     14.56,
+     16.98
+    ],
+    "rhyme_ok": [
+     38.18,
+     36.6,
+     39.79
+    ],
+    "count_exact": [
+     83.4,
+     82.19,
+     84.63
+    ],
+    "even_lines": [
+     97.64,
+     97.16,
+     98.16
+    ],
+    "bayt_ok": [
+     53.78,
+     52.65,
+     54.86
+    ],
+    "bayt_ok_any_form": [
+     54.81,
+     53.74,
+     55.83
+    ],
+    "no_reading": [
+     25.82,
+     24.99,
+     26.66
+    ],
+    "bilstm_bayt_ok": [
+     95.37,
+     94.95,
+     95.79
+    ]
+   },
+   "binding": {
+    "strict_valid": [
+     5.06,
+     4.34,
+     5.8
+    ],
+    "meter_ok": [
+     7.7,
+     6.81,
+     8.56
+    ],
+    "meter_ok_any_form": [
+     7.9,
+     6.98,
+     8.76
+    ],
+    "rhyme_ok": [
+     33.84,
+     32.26,
+     35.39
+    ],
+    "count_exact": [
+     83.4,
+     82.19,
+     84.63
+    ],
+    "even_lines": [
+     97.64,
+     97.16,
+     98.16
+    ],
+    "bayt_ok": [
+     40.41,
+     39.36,
+     41.45
+    ],
+    "bayt_ok_any_form": [
+     41.3,
+     40.29,
+     42.3
+    ],
+    "no_reading": [
+     50.12,
+     49.1,
+     51.17
+    ],
+    "bilstm_bayt_ok": [
+     95.37,
+     94.95,
+     95.79
+    ]
+   },
+   "margin_inf": {
+    "strict_valid": [
+     13.56,
+     12.44,
+     14.71
+    ],
+    "meter_ok": [
+     24.94,
+     23.47,
+     26.37
+    ],
+    "meter_ok_any_form": [
+     25.65,
+     24.16,
+     27.09
+    ],
+    "rhyme_ok": [
+     38.18,
+     36.6,
+     39.79
+    ],
+    "count_exact": [
+     83.4,
+     82.19,
+     84.63
+    ],
+    "even_lines": [
+     97.64,
+     97.16,
+     98.16
+    ],
+    "bayt_ok": [
+     65.49,
+     64.52,
+     66.46
+    ],
+    "bayt_ok_any_form": [
+     67.22,
+     66.3,
+     68.09
+    ],
+    "no_reading": [
+     25.82,
+     24.99,
+     26.66
+    ],
+    "bilstm_bayt_ok": [
+     95.37,
+     94.95,
+     95.79
+    ]
+   },
+   "by_length": {
+    "1-3": {
+     "poems": 1668,
+     "strict_valid": 17.51,
+     "meter_ok": 27.22,
+     "rhyme_ok": 57.37,
+     "count_exact": 98.44,
+     "bayt_ok": 49.06,
+     "bilstm_bayt_ok": 97.01
+    },
+    "4-6": {
+     "poems": 805,
+     "strict_valid": 2.24,
+     "meter_ok": 8.2,
+     "rhyme_ok": 31.06,
+     "count_exact": 93.17,
+     "bayt_ok": 50.65,
+     "bilstm_bayt_ok": 94.99
+    },
+    "7-10": {
+     "poems": 473,
+     "strict_valid": 0.63,
+     "meter_ok": 3.38,
+     "rhyme_ok": 16.91,
+     "count_exact": 75.26,
+     "bayt_ok": 54.46,
+     "bilstm_bayt_ok": 94.29
+    },
+    "11-20": {
+     "poems": 535,
+     "strict_valid": 0.0,
+     "meter_ok": 0.75,
+     "rhyme_ok": 7.85,
+     "count_exact": 28.97,
+     "bayt_ok": 56.88,
+     "bilstm_bayt_ok": 95.36
+    }
+   },
+   "issues": {
+    "rawi": 52.14,
+    "sinad_ridf": 29.91,
+    "count": 16.6,
+    "sinad_tasis": 12.96,
+    "israf": 8.68,
+    "darb_changes": 8.07,
+    "ita": 7.7,
+    "odd_tail": 2.36,
+    "iqwa": 2.04,
+    "arud_changes": 1.75,
+    "radif_missing": 0.78,
+    "mutlaqa_muqayyada": 0.23
+   },
+   "vs_reference": {
+    "prompts": 3481,
+    "strict_valid": [
+     -45.94,
+     -47.72,
+     -44.18
+    ],
+    "meter_ok": [
+     -41.57,
+     -43.38,
+     -39.76
+    ],
+    "rhyme_ok": [
+     -54.96,
+     -56.74,
+     -53.2
+    ],
+    "count_exact": [
+     -16.6,
+     -17.81,
+     -15.37
+    ],
+    "bayt_ok": [
+     -28.31,
+     -29.73,
+     -26.95
+    ],
+    "no_reading": [
+     20.64,
+     19.67,
+     21.65
+    ],
+    "bilstm_bayt_ok": [
+     -1.93,
+     -2.58,
+     -1.24
+    ]
+   },
+   "by_meter": {
+    "tawil": {
+     "poems": 841,
+     "strict_valid": 14.63,
+     "meter_ok": 25.09,
+     "rhyme_ok": 41.5,
+     "bayt_ok": 71.43,
+     "bilstm_bayt_ok": 99.96
+    },
+    "kamil": {
+     "poems": 649,
+     "strict_valid": 7.4,
+     "meter_ok": 14.18,
+     "rhyme_ok": 32.67,
+     "bayt_ok": 53.12,
+     "bilstm_bayt_ok": 95.04
+    },
+    "basit": {
+     "poems": 529,
+     "strict_valid": 9.07,
+     "meter_ok": 15.12,
+     "rhyme_ok": 42.53,
+     "bayt_ok": 56.78,
+     "bilstm_bayt_ok": 98.29
+    },
+    "wafir": {
+     "poems": 340,
+     "strict_valid": 9.41,
+     "meter_ok": 14.71,
+     "rhyme_ok": 38.24,
+     "bayt_ok": 52.31,
+     "bilstm_bayt_ok": 96.54
+    },
+    "khafif": {
+     "poems": 295,
+     "strict_valid": 7.8,
+     "meter_ok": 11.86,
+     "rhyme_ok": 35.59,
+     "bayt_ok": 50.28,
+     "bilstm_bayt_ok": 98.22
+    },
+    "sari": {
+     "poems": 216,
+     "strict_valid": 5.09,
+     "meter_ok": 8.8,
+     "rhyme_ok": 37.96,
+     "bayt_ok": 34.86,
+     "bilstm_bayt_ok": 87.71
+    },
+    "mutaqarib": {
+     "poems": 156,
+     "strict_valid": 7.69,
+     "meter_ok": 14.1,
+     "rhyme_ok": 37.82,
+     "bayt_ok": 44.41,
+     "bilstm_bayt_ok": 96.15
+    },
+    "ramal": {
+     "poems": 138,
+     "strict_valid": 2.17,
+     "meter_ok": 5.8,
+     "rhyme_ok": 36.96,
+     "bayt_ok": 28.1,
+     "bilstm_bayt_ok": 86.84
+    },
+    "rajaz": {
+     "poems": 137,
+     "strict_valid": 5.84,
+     "meter_ok": 7.3,
+     "rhyme_ok": 33.58,
+     "bayt_ok": 31.9,
+     "bilstm_bayt_ok": 84.24
+    },
+    "munsarih": {
+     "poems": 84,
+     "strict_valid": 1.19,
+     "meter_ok": 5.95,
+     "rhyme_ok": 51.19,
+     "bayt_ok": 34.85,
+     "bilstm_bayt_ok": 82.0
+    },
+    "mujtath": {
+     "poems": 61,
+     "strict_valid": 4.92,
+     "meter_ok": 11.48,
+     "rhyme_ok": 26.23,
+     "bayt_ok": 52.51,
+     "bilstm_bayt_ok": 86.96
+    },
+    "hazaj": {
+     "poems": 18,
+     "strict_valid": 5.56,
+     "meter_ok": 5.56,
+     "rhyme_ok": 33.33,
+     "bayt_ok": 31.73,
+     "bilstm_bayt_ok": 80.77
+    },
+    "madid": {
+     "poems": 17,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 29.41,
+     "bayt_ok": 37.89,
+     "bilstm_bayt_ok": 65.26
+    }
+   },
+   "first_broken_foot": {
+    "1": 44.84,
+    "2": 26.39,
+    "3": 23.66,
+    "4": 5.11
+   },
+   "bayt_ok_by_position": {
+    "1": 53.17,
+    "2": 51.87,
+    "3": 51.5,
+    "4": 54.18,
+    "5": 54.55,
+    "6": 54.77,
+    "7": 54.3,
+    "8": 56.68,
+    "9": 55.43,
+    "10+": 55.42
+   },
+   "official": {
+    "n": 3481,
+    "meter_conformity": 0.9064,
+    "base_meter_accuracy_pct": 95.1738,
+    "base_meter_accuracy_majority_pct": 98.7647,
+    "exact_count_accuracy_pct": 83.3956,
+    "count_adherence": 0.9792
+   }
+  },
+  "e1_shaer_adapter": {
+   "label": "E1 re-generated",
+   "letters": {
+    "strict_valid": [
+     5.17,
+     4.42,
+     5.92
+    ],
+    "meter_ok": [
+     8.91,
+     7.93,
+     9.85
+    ],
+    "meter_ok_any_form": [
+     9.08,
+     8.1,
+     10.03
+    ],
+    "rhyme_ok": [
+     36.31,
+     34.76,
+     37.86
+    ],
+    "count_exact": [
+     82.07,
+     80.81,
+     83.37
+    ],
+    "even_lines": [
+     97.3,
+     96.75,
+     97.82
+    ],
+    "bayt_ok": [
+     44.2,
+     43.0,
+     45.39
+    ],
+    "bayt_ok_any_form": [
+     45.31,
+     44.15,
+     46.48
+    ],
+    "no_reading": [
+     32.01,
+     30.98,
+     32.99
+    ],
+    "bilstm_bayt_ok": [
+     82.07,
+     81.1,
+     83.02
+    ]
+   },
+   "binding": null,
+   "margin_inf": {
+    "strict_valid": [
+     8.91,
+     7.96,
+     9.82
+    ],
+    "meter_ok": [
+     16.49,
+     15.23,
+     17.7
+    ],
+    "meter_ok_any_form": [
+     17.15,
+     15.86,
+     18.36
+    ],
+    "rhyme_ok": [
+     36.31,
+     34.76,
+     37.86
+    ],
+    "count_exact": [
+     82.07,
+     80.81,
+     83.37
+    ],
+    "even_lines": [
+     97.3,
+     96.75,
+     97.82
+    ],
+    "bayt_ok": [
+     56.12,
+     55.0,
+     57.26
+    ],
+    "bayt_ok_any_form": [
+     58.59,
+     57.54,
+     59.63
+    ],
+    "no_reading": [
+     32.01,
+     30.98,
+     32.99
+    ],
+    "bilstm_bayt_ok": [
+     82.07,
+     81.1,
+     83.02
+    ]
+   },
+   "by_length": {
+    "1-3": {
+     "poems": 1668,
+     "strict_valid": 10.13,
+     "meter_ok": 16.01,
+     "rhyme_ok": 53.84,
+     "count_exact": 97.66,
+     "bayt_ok": 36.85,
+     "bilstm_bayt_ok": 77.76
+    },
+    "4-6": {
+     "poems": 805,
+     "strict_valid": 1.24,
+     "meter_ok": 4.35,
+     "rhyme_ok": 30.56,
+     "count_exact": 92.55,
+     "bayt_ok": 40.51,
+     "bilstm_bayt_ok": 79.91
+    },
+    "7-10": {
+     "poems": 473,
+     "strict_valid": 0.21,
+     "meter_ok": 1.06,
+     "rhyme_ok": 16.49,
+     "count_exact": 74.0,
+     "bayt_ok": 43.12,
+     "bilstm_bayt_ok": 81.23
+    },
+    "11-20": {
+     "poems": 535,
+     "strict_valid": 0.0,
+     "meter_ok": 0.56,
+     "rhyme_ok": 7.85,
+     "count_exact": 24.86,
+     "bayt_ok": 49.42,
+     "bilstm_bayt_ok": 85.23
+    }
+   },
+   "issues": {
+    "rawi": 54.04,
+    "sinad_ridf": 34.76,
+    "count": 17.93,
+    "sinad_tasis": 13.16,
+    "darb_changes": 8.93,
+    "israf": 7.93,
+    "ita": 7.41,
+    "odd_tail": 2.7,
+    "iqwa": 2.1,
+    "arud_changes": 1.9,
+    "radif_missing": 0.63,
+    "mutlaqa_muqayyada": 0.49
+   },
+   "vs_reference": {
+    "prompts": 3481,
+    "strict_valid": [
+     -49.76,
+     -51.39,
+     -48.06
+    ],
+    "meter_ok": [
+     -48.18,
+     -49.99,
+     -46.42
+    ],
+    "rhyme_ok": [
+     -56.82,
+     -58.52,
+     -55.1
+    ],
+    "count_exact": [
+     -17.93,
+     -19.19,
+     -16.63
+    ],
+    "bayt_ok": [
+     -37.9,
+     -39.39,
+     -36.38
+    ],
+    "no_reading": [
+     26.83,
+     25.7,
+     27.92
+    ],
+    "bilstm_bayt_ok": [
+     -15.22,
+     -16.32,
+     -14.15
+    ]
+   },
+   "by_meter": {
+    "tawil": {
+     "poems": 841,
+     "strict_valid": 9.27,
+     "meter_ok": 17.0,
+     "rhyme_ok": 38.64,
+     "bayt_ok": 64.7,
+     "bilstm_bayt_ok": 95.73
+    },
+    "kamil": {
+     "poems": 649,
+     "strict_valid": 3.24,
+     "meter_ok": 6.32,
+     "rhyme_ok": 32.67,
+     "bayt_ok": 40.6,
+     "bilstm_bayt_ok": 79.8
+    },
+    "basit": {
+     "poems": 529,
+     "strict_valid": 6.62,
+     "meter_ok": 9.26,
+     "rhyme_ok": 41.78,
+     "bayt_ok": 45.26,
+     "bilstm_bayt_ok": 84.44
+    },
+    "wafir": {
+     "poems": 340,
+     "strict_valid": 5.0,
+     "meter_ok": 8.53,
+     "rhyme_ok": 33.24,
+     "bayt_ok": 43.15,
+     "bilstm_bayt_ok": 82.43
+    },
+    "khafif": {
+     "poems": 295,
+     "strict_valid": 4.75,
+     "meter_ok": 7.12,
+     "rhyme_ok": 35.93,
+     "bayt_ok": 39.0,
+     "bilstm_bayt_ok": 85.92
+    },
+    "sari": {
+     "poems": 216,
+     "strict_valid": 1.85,
+     "meter_ok": 2.78,
+     "rhyme_ok": 38.89,
+     "bayt_ok": 23.49,
+     "bilstm_bayt_ok": 63.58
+    },
+    "mutaqarib": {
+     "poems": 156,
+     "strict_valid": 1.92,
+     "meter_ok": 6.41,
+     "rhyme_ok": 30.13,
+     "bayt_ok": 34.92,
+     "bilstm_bayt_ok": 83.04
+    },
+    "ramal": {
+     "poems": 138,
+     "strict_valid": 1.45,
+     "meter_ok": 2.9,
+     "rhyme_ok": 28.26,
+     "bayt_ok": 25.06,
+     "bilstm_bayt_ok": 65.56
+    },
+    "rajaz": {
+     "poems": 137,
+     "strict_valid": 2.19,
+     "meter_ok": 2.19,
+     "rhyme_ok": 37.96,
+     "bayt_ok": 27.23,
+     "bilstm_bayt_ok": 62.5
+    },
+    "munsarih": {
+     "poems": 84,
+     "strict_valid": 1.19,
+     "meter_ok": 1.19,
+     "rhyme_ok": 45.24,
+     "bayt_ok": 26.1,
+     "bilstm_bayt_ok": 57.74
+    },
+    "mujtath": {
+     "poems": 61,
+     "strict_valid": 3.28,
+     "meter_ok": 4.92,
+     "rhyme_ok": 24.59,
+     "bayt_ok": 38.85,
+     "bilstm_bayt_ok": 68.47
+    },
+    "hazaj": {
+     "poems": 18,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 33.33,
+     "bayt_ok": 16.07,
+     "bilstm_bayt_ok": 51.79
+    },
+    "madid": {
+     "poems": 17,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 35.29,
+     "bayt_ok": 20.0,
+     "bilstm_bayt_ok": 40.0
+    }
+   },
+   "first_broken_foot": {
+    "1": 47.76,
+    "2": 25.69,
+    "3": 21.22,
+    "4": 5.34
+   },
+   "bayt_ok_by_position": {
+    "1": 42.09,
+    "2": 39.52,
+    "3": 42.29,
+    "4": 43.84,
+    "5": 45.36,
+    "6": 47.4,
+    "7": 45.56,
+    "8": 45.76,
+    "9": 44.47,
+    "10+": 49.03
+   },
+   "official": {
+    "n": 3481,
+    "meter_conformity": 0.6613,
+    "base_meter_accuracy_pct": 80.1494,
+    "base_meter_accuracy_majority_pct": 87.0152,
+    "exact_count_accuracy_pct": 82.0741,
+    "count_adherence": 0.9764
+   }
+  },
+  "control_wrong_meter": {
+   "label": "Wrong-meter control",
+   "letters": {
+    "strict_valid": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "meter_ok": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "meter_ok_any_form": [
+     0.03,
+     0.0,
+     0.09
+    ],
+    "rhyme_ok": [
+     93.13,
+     92.3,
+     93.94
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     0.57,
+     0.36,
+     0.84
+    ],
+    "bayt_ok_any_form": [
+     0.67,
+     0.45,
+     0.94
+    ],
+    "no_reading": [
+     83.57,
+     82.47,
+     84.64
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "binding": null,
+   "margin_inf": {
+    "strict_valid": [
+     1.69,
+     1.29,
+     2.15
+    ],
+    "meter_ok": [
+     1.75,
+     1.35,
+     2.21
+    ],
+    "meter_ok_any_form": [
+     2.1,
+     1.64,
+     2.59
+    ],
+    "rhyme_ok": [
+     93.13,
+     92.3,
+     93.94
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     6.11,
+     5.44,
+     6.83
+    ],
+    "bayt_ok_any_form": [
+     7.19,
+     6.46,
+     7.94
+    ],
+    "no_reading": [
+     83.57,
+     82.47,
+     84.64
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "by_length": {
+    "1-3": {
+     "poems": 1668,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 96.52,
+     "count_exact": 100.0,
+     "bayt_ok": 0.51,
+     "bilstm_bayt_ok": null
+    },
+    "4-6": {
+     "poems": 805,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.42,
+     "count_exact": 100.0,
+     "bayt_ok": 0.34,
+     "bilstm_bayt_ok": null
+    },
+    "7-10": {
+     "poems": 473,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 91.97,
+     "count_exact": 100.0,
+     "bayt_ok": 0.51,
+     "bilstm_bayt_ok": null
+    },
+    "11-20": {
+     "poems": 535,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 84.67,
+     "count_exact": 100.0,
+     "bayt_ok": 0.73,
+     "bilstm_bayt_ok": null
+    }
+   },
+   "issues": {
+    "ita": 4.22,
+    "rawi": 3.48,
+    "sinad_ridf": 3.33,
+    "sinad_tasis": 2.59,
+    "darb_changes": 1.21,
+    "arud_changes": 1.18,
+    "israf": 0.57,
+    "radif_missing": 0.14,
+    "mutlaqa_muqayyada": 0.09,
+    "iqwa": 0.03
+   },
+   "vs_reference": {
+    "prompts": 3481,
+    "strict_valid": [
+     -54.93,
+     -56.54,
+     -53.32
+    ],
+    "meter_ok": [
+     -57.08,
+     -58.69,
+     -55.47
+    ],
+    "rhyme_ok": [
+     0.0,
+     -0.09,
+     0.09
+    ],
+    "count_exact": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "bayt_ok": [
+     -81.53,
+     -82.62,
+     -80.39
+    ],
+    "no_reading": [
+     78.4,
+     77.22,
+     79.57
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "by_meter": {
+    "mujtath": {
+     "poems": 255,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 91.76,
+     "bayt_ok": 0.14,
+     "bilstm_bayt_ok": null
+    },
+    "mudari": {
+     "poems": 245,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.24,
+     "bayt_ok": 0.0,
+     "bilstm_bayt_ok": null
+    },
+    "rajaz": {
+     "poems": 244,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 93.44,
+     "bayt_ok": 1.06,
+     "bilstm_bayt_ok": null
+    },
+    "madid": {
+     "poems": 241,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 93.36,
+     "bayt_ok": 0.22,
+     "bilstm_bayt_ok": null
+    },
+    "muqtadab": {
+     "poems": 230,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 94.78,
+     "bayt_ok": 0.0,
+     "bilstm_bayt_ok": null
+    },
+    "mutaqarib": {
+     "poems": 229,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.58,
+     "bayt_ok": 0.34,
+     "bilstm_bayt_ok": null
+    },
+    "munsarih": {
+     "poems": 219,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 91.32,
+     "bayt_ok": 0.47,
+     "bilstm_bayt_ok": null
+    },
+    "hazaj": {
+     "poems": 218,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.66,
+     "bayt_ok": 0.0,
+     "bilstm_bayt_ok": null
+    },
+    "mutadarik": {
+     "poems": 215,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 93.95,
+     "bayt_ok": 0.35,
+     "bilstm_bayt_ok": null
+    },
+    "ramal": {
+     "poems": 214,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 93.93,
+     "bayt_ok": 0.34,
+     "bilstm_bayt_ok": null
+    },
+    "sari": {
+     "poems": 211,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 94.79,
+     "bayt_ok": 0.27,
+     "bilstm_bayt_ok": null
+    },
+    "wafir": {
+     "poems": 209,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 94.26,
+     "bayt_ok": 0.0,
+     "bilstm_bayt_ok": null
+    },
+    "kamil": {
+     "poems": 199,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.96,
+     "bayt_ok": 4.33,
+     "bilstm_bayt_ok": null
+    },
+    "tawil": {
+     "poems": 191,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 92.15,
+     "bayt_ok": 0.68,
+     "bilstm_bayt_ok": null
+    },
+    "khafif": {
+     "poems": 188,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 95.21,
+     "bayt_ok": 0.19,
+     "bilstm_bayt_ok": null
+    },
+    "basit": {
+     "poems": 173,
+     "strict_valid": 0.0,
+     "meter_ok": 0.0,
+     "rhyme_ok": 90.75,
+     "bayt_ok": 1.17,
+     "bilstm_bayt_ok": null
+    }
+   },
+   "first_broken_foot": {
+    "1": 78.73,
+    "2": 12.83,
+    "3": 6.98,
+    "4": 1.46
+   },
+   "bayt_ok_by_position": {
+    "1": 0.6,
+    "2": 0.49,
+    "3": 0.62,
+    "4": 0.44,
+    "5": 0.35,
+    "6": 0.51,
+    "7": 0.79,
+    "8": 0.7,
+    "9": 0.27,
+    "10+": 0.72
+   },
+   "official": null
+  },
+  "control_mixed_rhyme": {
+   "label": "Mixed-rhyme control",
+   "letters": {
+    "strict_valid": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "meter_ok": [
+     38.8,
+     36.38,
+     41.29
+    ],
+    "meter_ok_any_form": [
+     39.07,
+     36.65,
+     41.56
+    ],
+    "rhyme_ok": [
+     0.27,
+     0.07,
+     0.54
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     81.64,
+     80.5,
+     82.78
+    ],
+    "bayt_ok_any_form": [
+     85.67,
+     84.76,
+     86.59
+    ],
+    "no_reading": [
+     5.43,
+     4.86,
+     6.02
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "binding": null,
+   "margin_inf": {
+    "strict_valid": [
+     0.13,
+     0.0,
+     0.34
+    ],
+    "meter_ok": [
+     56.29,
+     53.8,
+     58.78
+    ],
+    "meter_ok_any_form": [
+     56.62,
+     54.14,
+     59.11
+    ],
+    "rhyme_ok": [
+     0.27,
+     0.07,
+     0.54
+    ],
+    "count_exact": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "even_lines": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "bayt_ok": [
+     88.49,
+     87.46,
+     89.45
+    ],
+    "bayt_ok_any_form": [
+     92.54,
+     91.83,
+     93.24
+    ],
+    "no_reading": [
+     5.43,
+     4.86,
+     6.02
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "by_length": {
+    "4-6": {
+     "poems": 805,
+     "strict_valid": 0.0,
+     "meter_ok": 47.2,
+     "rhyme_ok": 0.37,
+     "count_exact": 100.0,
+     "bayt_ok": 80.78,
+     "bilstm_bayt_ok": null
+    },
+    "7-10": {
+     "poems": 419,
+     "strict_valid": 0.0,
+     "meter_ok": 34.84,
+     "rhyme_ok": 0.0,
+     "count_exact": 100.0,
+     "bayt_ok": 82.01,
+     "bilstm_bayt_ok": null
+    },
+    "11-20": {
+     "poems": 263,
+     "strict_valid": 0.0,
+     "meter_ok": 19.39,
+     "rhyme_ok": 0.38,
+     "count_exact": 100.0,
+     "bayt_ok": 82.18,
+     "bilstm_bayt_ok": null
+    }
+   },
+   "issues": {
+    "rawi": 99.66,
+    "sinad_ridf": 48.22,
+    "sinad_tasis": 19.84,
+    "darb_changes": 10.56,
+    "israf": 7.87,
+    "arud_changes": 5.78,
+    "ita": 3.7,
+    "iqwa": 1.41,
+    "mutlaqa_muqayyada": 0.13
+   },
+   "vs_reference": {
+    "prompts": 1487,
+    "strict_valid": [
+     -43.44,
+     -45.86,
+     -40.89
+    ],
+    "meter_ok": [
+     -7.2,
+     -9.75,
+     -4.64
+    ],
+    "rhyme_ok": [
+     -90.52,
+     -92.0,
+     -89.04
+    ],
+    "count_exact": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "bayt_ok": [
+     -0.41,
+     -1.54,
+     0.74
+    ],
+    "no_reading": [
+     -0.15,
+     -0.78,
+     0.48
+    ],
+    "bilstm_bayt_ok": [
+     NaN,
+     NaN,
+     NaN
+    ]
+   },
+   "by_meter": {
+    "tawil": {
+     "poems": 352,
+     "strict_valid": 0.0,
+     "meter_ok": 51.7,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 89.19,
+     "bilstm_bayt_ok": null
+    },
+    "kamil": {
+     "poems": 284,
+     "strict_valid": 0.0,
+     "meter_ok": 37.32,
+     "rhyme_ok": 0.35,
+     "bayt_ok": 80.37,
+     "bilstm_bayt_ok": null
+    },
+    "basit": {
+     "poems": 230,
+     "strict_valid": 0.0,
+     "meter_ok": 47.39,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 84.93,
+     "bilstm_bayt_ok": null
+    },
+    "wafir": {
+     "poems": 149,
+     "strict_valid": 0.0,
+     "meter_ok": 50.34,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 86.09,
+     "bilstm_bayt_ok": null
+    },
+    "khafif": {
+     "poems": 141,
+     "strict_valid": 0.0,
+     "meter_ok": 36.88,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 84.04,
+     "bilstm_bayt_ok": null
+    },
+    "sari": {
+     "poems": 78,
+     "strict_valid": 0.0,
+     "meter_ok": 15.38,
+     "rhyme_ok": 1.28,
+     "bayt_ok": 76.46,
+     "bilstm_bayt_ok": null
+    },
+    "ramal": {
+     "poems": 63,
+     "strict_valid": 0.0,
+     "meter_ok": 7.94,
+     "rhyme_ok": 1.59,
+     "bayt_ok": 57.45,
+     "bilstm_bayt_ok": null
+    },
+    "mutaqarib": {
+     "poems": 58,
+     "strict_valid": 0.0,
+     "meter_ok": 8.62,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 69.92,
+     "bilstm_bayt_ok": null
+    },
+    "rajaz": {
+     "poems": 53,
+     "strict_valid": 0.0,
+     "meter_ok": 13.21,
+     "rhyme_ok": 1.89,
+     "bayt_ok": 59.73,
+     "bilstm_bayt_ok": null
+    },
+    "munsarih": {
+     "poems": 37,
+     "strict_valid": 0.0,
+     "meter_ok": 29.73,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 80.08,
+     "bilstm_bayt_ok": null
+    },
+    "mujtath": {
+     "poems": 24,
+     "strict_valid": 0.0,
+     "meter_ok": 33.33,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 80.0,
+     "bilstm_bayt_ok": null
+    },
+    "hazaj": {
+     "poems": 9,
+     "strict_valid": 0.0,
+     "meter_ok": 33.33,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 73.58,
+     "bilstm_bayt_ok": null
+    },
+    "madid": {
+     "poems": 9,
+     "strict_valid": 0.0,
+     "meter_ok": 22.22,
+     "rhyme_ok": 0.0,
+     "bayt_ok": 70.77,
+     "bilstm_bayt_ok": null
+    }
+   },
+   "first_broken_foot": {
+    "1": 54.4,
+    "2": 26.88,
+    "3": 14.86,
+    "4": 3.85
+   },
+   "bayt_ok_by_position": {
+    "1": 82.45,
+    "2": 81.44,
+    "3": 82.18,
+    "4": 83.05,
+    "5": 81.69,
+    "6": 81.84,
+    "7": 82.26,
+    "8": 80.23,
+    "9": 81.86,
+    "10+": 78.9
+   },
+   "official": null
+  }
+ },
+ "agreement": {
+  "reference": {
+   "bayts": 19198,
+   "kappa_verifier_bilstm": 0.18554753057538334,
+   "agree_pct": 84.02958641525159,
+   "bilstm_yes_verifier_no_pct": 15.5693301385561,
+   "kappa_letters_binding": 0.781694134171381
+  },
+  "e0_released_shaer": {
+   "bayts": 19927,
+   "kappa_verifier_bilstm": 0.08200280637348016,
+   "agree_pct": 57.25397701610879,
+   "bilstm_yes_verifier_no_pct": 42.16389822853415,
+   "kappa_letters_binding": 0.6570250507857305
+  },
+  "e1_shaer_adapter": {
+   "bayts": 20075,
+   "kappa_verifier_bilstm": 0.24052892077122207,
+   "agree_pct": 59.202988792029885,
+   "bilstm_yes_verifier_no_pct": 39.33250311332503
+  },
+  "control_wrong_meter": {
+   "bayts": 0,
+   "kappa_verifier_bilstm": null,
+   "agree_pct": null,
+   "bilstm_yes_verifier_no_pct": null
+  },
+  "control_mixed_rhyme": {
+   "bayts": 0,
+   "kappa_verifier_bilstm": null,
+   "agree_pct": null,
+   "bilstm_yes_verifier_no_pct": null
+  }
+ },
+ "variants": {
+  "reference": {
+   "full": [
+    0.5492674518816432,
+    0.5331729388106866,
+    0.5653547831083022
+   ],
+   "no_rhyme": [
+    0.57081298477449,
+    0.5547256535478311,
+    0.5869003160011491
+   ],
+   "no_length": [
+    0.5492674518816432,
+    0.5331729388106866,
+    0.5653547831083022
+   ],
+   "any_form": [
+    0.5719620798621086,
+    0.5561620224073542,
+    0.5883366848606723
+   ],
+   "no_margin": [
+    0.6972134444125251,
+    0.68198793450158,
+    0.7124389543234703
+   ],
+   "margin_1.0": [
+    0.5096236713588049,
+    0.49296179258833667,
+    0.5259982763573686
+   ],
+   "margin_3.0": [
+    0.6604424016087331,
+    0.645216891697788,
+    0.6759551852915828
+   ],
+   "binding": [
+    0.5248491812697501,
+    0.5084673944268888,
+    0.5409365124964091
+   ],
+   "base_bilstm": [
+    0.9434070669347888,
+    0.9353634013214593,
+    0.9511634587762138
+   ]
+  },
+  "e0_released_shaer": {
+   "full": [
+    0.08991669060614765,
+    0.08043665613329504,
+    0.09939672507900028
+   ],
+   "no_rhyme": [
+    0.1496696351623097,
+    0.13760413674231542,
+    0.1614478598103993
+   ],
+   "no_length": [
+    0.09106578569376617,
+    0.08158575122091354,
+    0.10054582016661878
+   ],
+   "any_form": [
+    0.09164033323757541,
+    0.08216029876472278,
+    0.10112036771042804
+   ],
+   "no_margin": [
+    0.13559322033898305,
+    0.12438954323470267,
+    0.14708417121516806
+   ],
+   "margin_1.0": [
+    0.0835966676242459,
+    0.0744039069232979,
+    0.0927894283251939
+   ],
+   "margin_3.0": [
+    0.11921861534041941,
+    0.10858948577994829,
+    0.13013501867279517
+   ],
+   "binding": [
+    0.05056018385521402,
+    0.04337833955759839,
+    0.058029301924734274
+   ],
+   "base_bilstm": [
+    0.7313990232691755,
+    0.7167480609020397,
+    0.746337259408216
+   ]
+  },
+  "e1_shaer_adapter": {
+   "full": [
+    0.05170927894283252,
+    0.04424016087331226,
+    0.05917839701235277
+   ],
+   "no_rhyme": [
+    0.08618213157138753,
+    0.0767020970985349,
+    0.09566216604424016
+   ],
+   "no_length": [
+    0.05170927894283252,
+    0.04424016087331226,
+    0.05917839701235277
+   ],
+   "any_form": [
+    0.05228382648664177,
+    0.04481470841712152,
+    0.05975294455616202
+   ],
+   "no_margin": [
+    0.08905486929043378,
+    0.07957483481758115,
+    0.09824762999138179
+   ],
+   "margin_1.0": [
+    0.04912381499569089,
+    0.041941970698075266,
+    0.05630565929330652
+   ],
+   "margin_3.0": [
+    0.06894570525711002,
+    0.06032749209997127,
+    0.07727664464234416
+   ],
+   "base_bilstm": [
+    0.45935076127549557,
+    0.4424016087331227,
+    0.47601264004596383
+   ]
+  },
+  "control_wrong_meter": {
+   "full": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "no_rhyme": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "no_length": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "any_form": [
+    0.0002872737719046251,
+    0.0,
+    0.0008618213157138753
+   ],
+   "no_margin": [
+    0.01694915254237288,
+    0.01292731973570813,
+    0.021545532892846882
+   ],
+   "margin_1.0": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "margin_3.0": [
+    0.004883654122378627,
+    0.002872737719046251,
+    0.007469118069520253
+   ],
+   "base_bilstm": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "control_mixed_rhyme": {
+   "full": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "no_rhyme": [
+    0.38802958977807667,
+    0.36381977135171484,
+    0.4129119031607263
+   ],
+   "no_length": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "any_form": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "no_margin": [
+    0.0013449899125756557,
+    0.0,
+    0.0033624747814391394
+   ],
+   "margin_1.0": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "margin_3.0": [
+    0.0013449899125756557,
+    0.0,
+    0.0033624747814391394
+   ],
+   "base_bilstm": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "mcnemar_vs_reference": {
+  "e0_released_shaer": {
+   "n01": 1667,
+   "n10": 68,
+   "p": 0.0
+  },
+  "e1_shaer_adapter": {
+   "n01": 1777,
+   "n10": 45,
+   "p": 0.0
+  }
+ },
+ "logit": {
+  "columns": [
+   "intercept",
+   "sys:reference",
+   "sys:e1_shaer_adapter",
+   "len:4-6",
+   "len:7-10",
+   "len:11-20",
+   "meter:kamil",
+   "meter:basit",
+   "meter:wafir",
+   "meter:khafif",
+   "meter:sari",
+   "meter:mutaqarib"
+  ],
+  "reference_levels": {
+   "system": "e0_released_shaer",
+   "length": "1-3",
+   "meter": "tawil"
+  },
+  "models": {
+   "base": {
+    "coef": {
+     "intercept": 2.148113133393834,
+     "sys:reference": 2.17801923887478,
+     "sys:e1_shaer_adapter": -1.47265929240224,
+     "len:4-6": -0.8486828527197791,
+     "len:7-10": -1.6029744947741331,
+     "len:11-20": -2.9399997121192625,
+     "meter:kamil": -0.26182664785263604,
+     "meter:basit": 0.05581001481983046,
+     "meter:wafir": 0.01909602874004376,
+     "meter:khafif": 0.28701268831779964,
+     "meter:sari": -0.8480804101919447,
+     "meter:mutaqarib": -0.29412765247274236
+    },
+    "ci": {
+     "intercept": [
+      2.0137799316775653,
+      2.2938821399893827
+     ],
+     "sys:reference": [
+      1.9908292452348137,
+      2.3897286811769525
+     ],
+     "sys:e1_shaer_adapter": [
+      -1.5757915832921459,
+      -1.3744100113735471
+     ],
+     "len:4-6": [
+      -0.9981091441883068,
+      -0.6960701742210791
+     ],
+     "len:7-10": [
+      -1.7928564630428452,
+      -1.4245186124676055
+     ],
+     "len:11-20": [
+      -3.1209099516174277,
+      -2.7771553780736262
+     ],
+     "meter:kamil": [
+      -0.42160995646248434,
+      -0.09819133408630529
+     ],
+     "meter:basit": [
+      -0.11645648302402986,
+      0.2276420440441845
+     ],
+     "meter:wafir": [
+      -0.19888414074747207,
+      0.24495767008100616
+     ],
+     "meter:khafif": [
+      0.07835039735993594,
+      0.5054769445289065
+     ],
+     "meter:sari": [
+      -1.0728368550238876,
+      -0.6217955506833138
+     ],
+     "meter:mutaqarib": [
+      -0.5531359961496857,
+      -0.02660264847869203
+     ]
+    },
+    "loglik": -4349.99345787749,
+    "loglik_null": -6275.265079749225,
+    "mcfadden_r2": 0.30680323419081346,
+    "aic": 8723.98691575498,
+    "n": 10443,
+    "positive_rate": 0.71138561715982
+   },
+   "ext": {
+    "coef": {
+     "intercept": -1.6706280426491866,
+     "sys:reference": 2.867963456806756,
+     "sys:e1_shaer_adapter": -0.6175317708260254,
+     "len:4-6": -1.2700675052183115,
+     "len:7-10": -1.6609721930528845,
+     "len:11-20": -2.3705564872532836,
+     "meter:kamil": 0.010342686722538451,
+     "meter:basit": 0.15069850180043895,
+     "meter:wafir": 0.07453992089483323,
+     "meter:khafif": -0.17574669364509793,
+     "meter:sari": -1.0108517153525807,
+     "meter:mutaqarib": -0.9960370273209703
+    },
+    "ci": {
+     "intercept": [
+      -1.8269372157856847,
+      -1.523043862912437
+     ],
+     "sys:reference": [
+      2.732713984601931,
+      3.0100232894461065
+     ],
+     "sys:e1_shaer_adapter": [
+      -0.7934273132752097,
+      -0.45481557523033345
+     ],
+     "len:4-6": [
+      -1.425454432838066,
+      -1.12545644158901
+     ],
+     "len:7-10": [
+      -1.8482758400195118,
+      -1.4857482477815238
+     ],
+     "len:11-20": [
+      -2.585330869904677,
+      -2.1744451538654324
+     ],
+     "meter:kamil": [
+      -0.16498800101765937,
+      0.17369018015092563
+     ],
+     "meter:basit": [
+      -0.03571404882008094,
+      0.3362203128861606
+     ],
+     "meter:wafir": [
+      -0.1367810667456564,
+      0.28364919706819164
+     ],
+     "meter:khafif": [
+      -0.4204780918260868,
+      0.05357184452637316
+     ],
+     "meter:sari": [
+      -1.3337084752678892,
+      -0.7148866694341124
+     ],
+     "meter:mutaqarib": [
+      -1.381616610475811,
+      -0.6435321219093841
+     ]
+    },
+    "loglik": -3684.2051787983614,
+    "loglik_null": -5635.41806804404,
+    "mcfadden_r2": 0.3462410180905908,
+    "aic": 7392.410357596723,
+    "n": 10443,
+    "positive_rate": 0.23029780714354112
+   }
+  },
+  "nested": {
+   "base": [
+    {
+     "step": "S1",
+     "label": "system",
+     "k": 3,
+     "loglik": -5183.867779641283,
+     "mcfadden_r2": 0.1739205095303411,
+     "aic": 10373.735559282566
+    },
+    {
+     "step": "S2",
+     "label": "+ length",
+     "k": 6,
+     "loglik": -4395.7217729493705,
+     "mcfadden_r2": 0.2995161611364099,
+     "aic": 8803.443545898741,
+     "lr": 1576.2920133838252,
+     "df": 3,
+     "p": 0.0
+    },
+    {
+     "step": "S3",
+     "label": "+ meter",
+     "k": 12,
+     "loglik": -4349.99345787749,
+     "mcfadden_r2": 0.30680323419081346,
+     "aic": 8723.98691575498,
+     "lr": 91.45663014376078,
+     "df": 6,
+     "p": 1.5092952126603344e-17
+    }
+   ],
+   "ext": [
+    {
+     "step": "S1",
+     "label": "system",
+     "k": 3,
+     "loglik": -4156.827263449222,
+     "mcfadden_r2": 0.2623746431483498,
+     "aic": 8319.654526898445
+    },
+    {
+     "step": "S2",
+     "label": "+ length",
+     "k": 6,
+     "loglik": -3738.8675472591585,
+     "mcfadden_r2": 0.3365412286870747,
+     "aic": 7489.735094518317,
+     "lr": 835.9194323801275,
+     "df": 3,
+     "p": 7.013624084935824e-181
+    },
+    {
+     "step": "S3",
+     "label": "+ meter",
+     "k": 12,
+     "loglik": -3684.205178798361,
+     "mcfadden_r2": 0.34624101809059094,
+     "aic": 7392.410357596722,
+     "lr": 109.3247369215951,
+     "df": 6,
+     "p": 2.822724722553233e-21
+    }
+   ]
+  }
+ },
+ "power": {
+  "alpha": 0.05,
+  "power": 0.8,
+  "n_delta10_psi20": 155,
+  "n_delta5_psi10": 312,
+  "n_delta5_psi20": 626,
+  "power_400_delta10_psi20": 0.9950231564405053,
+  "power_3481_delta3_psi10": 0.9998707792787903,
+  "mde_3481": 0.017499999999999998
+ },
+ "m0": {
+  "e0_released_shaer": {
+   "system": "e0_released_shaer",
+   "source": "/tmp/claude-0/-home-user/8dab4297-00c8-5bad-b6c6-419d812f502b/scratchpad/m0run/e0/scored.jsonl",
+   "samples_per_prompt_in_source": 1,
+   "note": "rhyme figures are written-form heuristics, not the prosody verifier",
+   "poems": 3481,
+   "count": {
+    "exact_pct": 83.4,
+    "short_pct": 1.24,
+    "long_pct": 15.37,
+    "odd_tail_pct": 2.36,
+    "mean_abs_delta_hemistichs": 0.4976,
+    "delta_histogram": {
+     "-6": 1,
+     "-4": 2,
+     "-3": 1,
+     "-2": 23,
+     "-1": 16,
+     "0": 2903,
+     "1": 36,
+     "2": 324,
+     "3": 12,
+     "4": 108,
+     "5": 6,
+     "6": 49
+    },
+    "exact_pct_by_bucket": {
+     "1-3": 98.44,
+     "4-6": 93.17,
+     "7-10": 75.26,
+     "11-20": 28.97
+    }
+   },
+   "meter": {
+    "poems_scored": 3481,
+    "conformity_mean": 0.9064,
+    "bayts_scored": 19927,
+    "bayts_on_target_pct": 95.37,
+    "poems_all_bayts_on_target_pct": 84.29,
+    "poems_majority_on_target_pct": 98.76,
+    "poems_more_than_one_meter_pct": 15.51,
+    "off_target_bayt_pct_by_position": {
+     "bayt 1": 4.83,
+     "bayts 2-3": 4.02,
+     "bayts 4-6": 5.0,
+     "bayts 7+": 4.79
+    },
+    "poems_all_bayts_on_target_pct_by_meter": {
+     "البسيط": 93.76,
+     "الخفيف": 91.53,
+     "الرجز": 51.82,
+     "الرمل": 54.35,
+     "السريع": 70.83,
+     "الطويل": 99.76,
+     "الكامل": 79.2,
+     "المتقارب": 83.97,
+     "المجتث": 52.46,
+     "المديد": 29.41,
+     "المنسرح": 50.0,
+     "الهزج": 50.0,
+     "الوافر": 87.35
+    }
+   },
+   "strict_form_heuristic_pct": 40.42,
+   "rhyme_heuristic": {
+    "poems_with_2plus_bayts": 3262,
+    "rawi_all_same_pct": 43.81,
+    "rawi_mean_share": 0.7755,
+    "last_letter_all_same_pct": 41.78,
+    "rawi_vowel_all_same_pct": 69.92,
+    "rawi_all_same_pct_by_bucket": {
+     "1-3": 60.73,
+     "4-6": 40.25,
+     "7-10": 28.75,
+     "11-20": 16.64
+    },
+    "tasri_pct": 20.68,
+    "rawi_all_same_pct_by_meter": {
+     "البسيط": 48.58,
+     "الخفيف": 42.05,
+     "الرجز": 31.15,
+     "الرمل": 40.6,
+     "السريع": 48.1,
+     "الطويل": 44.98,
+     "الكامل": 39.64,
+     "المتقارب": 43.24,
+     "المجتث": 35.0,
+     "المديد": 20.0,
+     "المنسرح": 53.75,
+     "الهزج": 41.18,
+     "الوافر": 47.19
+    }
+   },
+   "diacritics": {
+    "mean_coverage": 0.4208,
+    "hemistichs_fully_diacritised_pct": 0.89
+   }
+  },
+  "reference": {
+   "system": "reference",
+   "source": "/tmp/claude-0/-home-user/8dab4297-00c8-5bad-b6c6-419d812f502b/scratchpad/m0run/m0/reference/scored.jsonl",
+   "samples_per_prompt_in_source": 1,
+   "note": "rhyme figures are written-form heuristics, not the prosody verifier",
+   "poems": 3481,
+   "count": {
+    "exact_pct": 100.0,
+    "short_pct": 0.0,
+    "long_pct": 0.0,
+    "odd_tail_pct": 0.0,
+    "mean_abs_delta_hemistichs": 0.0,
+    "delta_histogram": {
+     "0": 3481
+    },
+    "exact_pct_by_bucket": {
+     "1-3": 100.0,
+     "4-6": 100.0,
+     "7-10": 100.0,
+     "11-20": 100.0
+    }
+   },
+   "meter": {
+    "poems_scored": 3481,
+    "conformity_mean": 0.9482,
+    "bayts_scored": 19198,
+    "bayts_on_target_pct": 97.3,
+    "poems_all_bayts_on_target_pct": 94.34,
+    "poems_majority_on_target_pct": 97.47,
+    "poems_more_than_one_meter_pct": 3.94,
+    "off_target_bayt_pct_by_position": {
+     "bayt 1": 3.05,
+     "bayts 2-3": 2.83,
+     "bayts 4-6": 2.69,
+     "bayts 7+": 2.39
+    },
+    "poems_all_bayts_on_target_pct_by_meter": {
+     "البسيط": 95.46,
+     "الخفيف": 95.93,
+     "الرجز": 84.67,
+     "الرمل": 89.86,
+     "السريع": 93.06,
+     "الطويل": 97.74,
+     "الكامل": 93.07,
+     "المتقارب": 95.51,
+     "المجتث": 90.16,
+     "المديد": 88.24,
+     "المنسرح": 92.86,
+     "الهزج": 94.44,
+     "الوافر": 92.65
+    }
+   },
+   "strict_form_heuristic_pct": 90.06,
+   "rhyme_heuristic": {
+    "poems_with_2plus_bayts": 3263,
+    "rawi_all_same_pct": 94.73,
+    "rawi_mean_share": 0.9773,
+    "last_letter_all_same_pct": 77.61,
+    "rawi_vowel_all_same_pct": 97.21,
+    "rawi_all_same_pct_by_bucket": {
+     "1-3": 98.14,
+     "4-6": 93.78,
+     "7-10": 92.81,
+     "11-20": 88.6
+    },
+    "tasri_pct": 36.83,
+    "rawi_all_same_pct_by_meter": {
+     "البسيط": 96.56,
+     "الخفيف": 95.76,
+     "الرجز": 71.67,
+     "الرمل": 88.72,
+     "السريع": 98.57,
+     "الطويل": 96.22,
+     "الكامل": 96.42,
+     "المتقارب": 91.89,
+     "المجتث": 91.67,
+     "المديد": 93.33,
+     "المنسرح": 92.5,
+     "الهزج": 94.12,
+     "الوافر": 95.31
+    }
+   },
+   "diacritics": {
+    "mean_coverage": 0.2979,
+    "hemistichs_fully_diacritised_pct": 1.27
+   }
+  }
+ },
+ "m1": {
+  "poems": 3481,
+  "hemistichs": 38412,
+  "by_margin": {
+   "0.5": {
+    "acceptance": 85.7,
+    "wrong_meters_per_hemistich": 0.224,
+    "negatives_rejected": {
+     "drop_letter": 27.72,
+     "drop_word": 81.27,
+     "add_word": 99.65,
+     "swap_word": 82.39
+    },
+    "negatives_rejected_all": 74.72
+   },
+   "1.0": {
+    "acceptance": 86.52,
+    "wrong_meters_per_hemistich": 0.284,
+    "negatives_rejected": {
+     "drop_letter": 25.92,
+     "drop_word": 76.94,
+     "add_word": 99.62,
+     "swap_word": 81.17
+    },
+    "negatives_rejected_all": 72.87
+   },
+   "1.5": {
+    "acceptance": 87.1,
+    "wrong_meters_per_hemistich": 0.329,
+    "negatives_rejected": {
+     "drop_letter": 24.37,
+     "drop_word": 75.13,
+     "add_word": 99.59,
+     "swap_word": 80.51
+    },
+    "negatives_rejected_all": 71.89
+   },
+   "2.0": {
+    "acceptance": 87.51,
+    "wrong_meters_per_hemistich": 0.383,
+    "negatives_rejected": {
+     "drop_letter": 22.9,
+     "drop_word": 73.66,
+     "add_word": 99.59,
+     "swap_word": 79.97
+    },
+    "negatives_rejected_all": 71.04
+   },
+   "3.0": {
+    "acceptance": 88.61,
+    "wrong_meters_per_hemistich": 0.789,
+    "negatives_rejected": {
+     "drop_letter": 18.76,
+     "drop_word": 67.59,
+     "add_word": 99.42,
+     "swap_word": 77.7
+    },
+    "negatives_rejected_all": 67.93
+   },
+   "99.0": {
+    "acceptance": 91.05,
+    "wrong_meters_per_hemistich": 2.412,
+    "negatives_rejected": {
+     "drop_word": 44.71,
+     "add_word": 98.25,
+     "swap_word": 73.4,
+     "drop_letter": 15.32
+    },
+    "negatives_rejected_all": 59.8
+   }
+  },
+  "acceptance_any_form@1.5": 91.12,
+  "identification_top1": 86.09,
+  "also_accepted_as@1.5": {
+   "tawil": {
+    "kamil": 3.4,
+    "rajaz": 1.1,
+    "basit": 0.9,
+    "khafif": 0.8
+   },
+   "kamil": {
+    "rajaz": 15.9,
+    "tawil": 12.2,
+    "basit": 4.6,
+    "munsarih": 2.4
+   },
+   "basit": {
+    "kamil": 1.5,
+    "tawil": 1.5,
+    "wafir": 1.1,
+    "munsarih": 0.8
+   },
+   "wafir": {
+    "tawil": 3.9,
+    "mutaqarib": 2.8,
+    "khafif": 2.7,
+    "hazaj": 2.1
+   },
+   "khafif": {
+    "kamil": 5.1,
+    "mutadarik": 3.9,
+    "madid": 3.5,
+    "tawil": 2.9
+   },
+   "sari": {
+    "kamil": 31.6,
+    "rajaz": 17.3,
+    "munsarih": 7.7,
+    "mutadarik": 7.3
+   },
+   "ramal": {
+    "mutadarik": 12.9,
+    "madid": 9.1,
+    "kamil": 7.3,
+    "khafif": 6.7
+   },
+   "mutaqarib": {
+    "mutadarik": 8.1,
+    "sari": 4.3,
+    "khafif": 4.1,
+    "tawil": 3.1
+   },
+   "rajaz": {
+    "kamil": 72.7,
+    "mujtath": 6.4,
+    "basit": 6.0,
+    "wafir": 5.7
+   },
+   "munsarih": {
+    "basit": 12.9,
+    "kamil": 7.0,
+    "rajaz": 3.3,
+    "khafif": 2.1
+   },
+   "mujtath": {
+    "mudari": 29.3,
+    "kamil": 27.2,
+    "mutadarik": 9.0,
+    "rajaz": 5.1
+   },
+   "hazaj": {
+    "wafir": 86.4,
+    "mutadarik": 8.7,
+    "rajaz": 7.8,
+    "kamil": 4.9
+   },
+   "madid": {
+    "mutadarik": 18.3,
+    "khafif": 10.8,
+    "ramal": 7.0,
+    "sari": 4.8
+   }
+  },
+  "by_meter": {
+   "tawil": {
+    "n": 9202,
+    "acceptance@1.5": 93.38,
+    "acceptance@inf": 94.6,
+    "top1": 91.98
+   },
+   "kamil": {
+    "n": 7446,
+    "acceptance@1.5": 85.75,
+    "acceptance@inf": 92.6,
+    "top1": 86.74
+   },
+   "basit": {
+    "n": 5780,
+    "acceptance@1.5": 86.68,
+    "acceptance@inf": 89.9,
+    "top1": 92.46
+   },
+   "wafir": {
+    "n": 3632,
+    "acceptance@1.5": 89.84,
+    "acceptance@inf": 92.48,
+    "top1": 88.79
+   },
+   "khafif": {
+    "n": 3512,
+    "acceptance@1.5": 86.73,
+    "acceptance@inf": 89.64,
+    "top1": 84.4
+   },
+   "sari": {
+    "n": 2050,
+    "acceptance@1.5": 88.0,
+    "acceptance@inf": 93.46,
+    "top1": 73.07
+   },
+   "ramal": {
+    "n": 1752,
+    "acceptance@1.5": 71.63,
+    "acceptance@inf": 79.91,
+    "top1": 77.97
+   },
+   "mutaqarib": {
+    "n": 1688,
+    "acceptance@1.5": 91.05,
+    "acceptance@inf": 93.78,
+    "top1": 87.86
+   },
+   "rajaz": {
+    "n": 1522,
+    "acceptance@1.5": 63.93,
+    "acceptance@inf": 71.81,
+    "top1": 63.86
+   },
+   "munsarih": {
+    "n": 848,
+    "acceptance@1.5": 88.92,
+    "acceptance@inf": 93.16,
+    "top1": 82.67
+   },
+   "mujtath": {
+    "n": 588,
+    "acceptance@1.5": 85.37,
+    "acceptance@inf": 92.86,
+    "top1": 47.28
+   },
+   "hazaj": {
+    "n": 206,
+    "acceptance@1.5": 79.13,
+    "acceptance@inf": 83.5,
+    "top1": 76.21
+   },
+   "madid": {
+    "n": 186,
+    "acceptance@1.5": 91.4,
+    "acceptance@inf": 92.47,
+    "top1": 84.41
+   }
+  },
+  "by_diacritic_coverage": {
+   "0-20%": {
+    "n": 17160,
+    "acceptance@1.5": 86.98,
+    "wrong_meters@1.5": 0.419
+   },
+   "20-40%": {
+    "n": 6407,
+    "acceptance@1.5": 85.72,
+    "wrong_meters@1.5": 0.303
+   },
+   "40-60%": {
+    "n": 8281,
+    "acceptance@1.5": 88.13,
+    "wrong_meters@1.5": 0.248
+   },
+   "60-80%": {
+    "n": 5195,
+    "acceptance@1.5": 88.64,
+    "wrong_meters@1.5": 0.215
+   },
+   "80-100%": {
+    "n": 1369,
+    "acceptance@1.5": 82.83,
+    "wrong_meters@1.5": 0.249
+   }
+  },
+  "poem_level": {
+   "poems": 3263,
+   "meter_ok_pct": 52.93,
+   "rhyme_ok_pct": 91.79,
+   "rhyme_negative_flagged_pct": 100.0,
+   "issue_counts": {
+    "ita": 147,
+    "rawi": 125,
+    "sinad_ridf": 114,
+    "sinad_tasis": 87,
+    "arud_changes": 72,
+    "darb_changes": 69,
+    "israf": 61,
+    "iqwa": 18,
+    "mutlaqa_muqayyada": 8,
+    "radif_missing": 5
+   }
+  },
+  "config": {
+   "poems_file": "/tmp/claude-0/-home-user/8dab4297-00c8-5bad-b6c6-419d812f502b/scratchpad/m1data/test_ref.jsonl",
+   "lexicon": "data/lexicon_train.json.gz",
+   "strict": true,
+   "seed": 13
+  }
+ }
+}

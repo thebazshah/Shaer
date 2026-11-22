@@ -78,7 +78,7 @@ against a wrong meter, \val{mCwmMeterOk}\% pass the meter check and \val{mCwmBay
 halves with different rhymes are joined, \val{mCmrRhymeOk}\% pass the rhyme check. The verifier can say ``no''.
 
 Table~\ref{tab:agree} reports agreement between the instruments. Agreement between the BiLSTM and the verifier is low
-for every system ($\kappa$ from \val{kEzeroVB} to \val{kRefVB}), because the BiLSTM accepts almost every bayt and nearly
+for every system ($\kappa$ below 0.3), because the BiLSTM accepts almost every bayt and nearly
 all disagreement lies in one cell: bayts that the BiLSTM accepts and the verifier rejects. Agreement between the two
 modes of the verifier is high ($\kappa = \val{kRefLB}$ on human poems), so the verdicts do not depend much on whether
 written vowels are trusted.
@@ -163,8 +163,8 @@ errors (Section~\ref{sec:m1}), and it sets a reference for what the verifier rej
 Shaer is almost three times larger. The margin-independent measure is clearer still: \val{mEzeroNoReading}\% of the
 Shaer bayts have a hemistich with \emph{no reading at all} in the requested meter, against \val{mRefNoReading}\% of the
 human bayts. Example 000013 in Table~\ref{tab:verifier-examples} is typical: a confident classifier decision on a line
-that is a syllable away from the meter. The same pattern holds for our own runs E1 and E3 (Table~\ref{tab:m3}), so it is
-not specific to the released poems. Of the poems that pass the base criterion \eqref{eq:base}, only
+that is a syllable away from the meter. The same pattern holds for our own generation E1 (\val{mEoneBilstmBaytOk}\% against
+\val{mEoneBaytOk}\%, Table~\ref{tab:m3}), so it is not specific to the released poems. Of the poems that pass the base criterion \eqref{eq:base}, only
 \val{gEzeroStrictGivenBase}\% are strictly valid.
 
 \textbf{H2 is supported.} \val{mEzeroStrictValid}\% of the released poems are strictly valid, against
@@ -188,13 +188,13 @@ from \val{mEzeroLenA}\% for 1--3 bayts to \val{mEzeroLenB}\% for 4--6 and \val{m
 \end{figure}
 
 Table~\ref{tab:logit} gives the structural model \eqref{eq:logit} for both criteria, fitted on the human poems and the
-generated poems of E0, E1 and E3 together (E2 is left out because it almost never passes either criterion). Under both
+generated poems of \val{lrSystems} together (E2 is left out because it almost never passes either criterion). Under both
 criteria the human poems are far more likely to pass than E0, and every longer bucket is less likely to pass than
 1--3 bayts, with odds ratios that shrink step by step. H3 is therefore supported, and the effect is large: under the
 extended criterion, a poem of 11--20 bayts has about a tenth of the odds of a short one. Meter effects are smaller, but
-two differences between the criteria are telling. Al-Khaf\={\i}f looks \emph{easier} than al-\d{T}aw\={\i}l under the
-BiLSTM and harder under the verifier, and al-Mutaq\=arib is neutral under the BiLSTM but clearly harder under the
-verifier. The choice of instrument changes not only the level of validity but also which meters look difficult.
+two differences between the criteria are telling. Al-Khaf\={\i}f has \emph{higher} odds than al-\d{T}aw\={\i}l
+under the BiLSTM but not under the verifier, and the disadvantage of al-Mutaq\=arib is much larger under the verifier
+(odds ratio 0.37) than under the BiLSTM (0.75). The choice of instrument changes not only the level of validity but also which meters look difficult.
 
 \begin{table*}[t]
 \centering
