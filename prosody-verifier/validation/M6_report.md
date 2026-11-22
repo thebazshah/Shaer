@@ -64,9 +64,13 @@ poeticness for the extremes (the human poems first, the weakest system last).
 * the summary: judge means, paired judge differences, strict validity and human ratings, read from the same files
   `run_llm_judge.py` writes (`judged.jsonl`).
 
-**The notebook helpers** (`pv.m6_collect`, `m6_human_sheet`, `m6_report`) call `m6_quality.py`, whose functions the
-tests above cover. The judge helper only calls the baseline's `run_llm_judge.py`; it was not run here because it is a
-paid API. Start with `dry_run=True`,
+**The notebook helpers.** `pv.m6_collect`, `m6_human_sheet` and `m6_report` were run end to end on the same fake Drive
+after M5's helpers:
+* the systems and the human poems were collected;
+* a 3 prompts × 3 systems sheet and its key were written;
+* the report was written; it shows strict validity and copying, and no judge scores, since none had been made.
+
+The judge helper only calls the baseline's `run_llm_judge.py`. It was not run here because it is a paid API. Start with `dry_run=True`,
 which prints the plan and one exact prompt without any call.
 
 ## 3. Cost and practical notes

@@ -106,9 +106,13 @@ The rawī line reads `عدد الأشطر المطلوب: 4\nحرف الروي: 
 
 ### 2c. The notebook helpers
 
-`pv.m5_relabel`, `m5_build` (2a, 2b) and `m5_import_baselines` were run on a fake Drive with a small corpus sample: the
-labels, the two data folders (the same content-hash names as a separate manual build, so the builds are deterministic)
-and `variants.json` were written, and the baseline folder was only read.
+`pv.m5_relabel`, `m5_build` (2a, 2b), `m5_import_baselines`, `m5_score` and `m5_report` were run end to end on a fake
+Drive with a small corpus sample and stand-in poems:
+* the labels, the two data folders and `variants.json` were written; the folders have the same content-hash names as a
+  separate manual build, so the builds are deterministic;
+* the baseline's E1 poems were copied from its folder, which was only read: its files were unchanged afterwards;
+* both runs were scored by the repository's scorer and the verifier, and the report was written with its integrity
+  checks at 0.
 
 Training and generation need the GPU. They use the baseline's runner (`sc.start_training`) and M4's generator
 (`m4_decode.py sample`), both validated before.
