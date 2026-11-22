@@ -1,0 +1,18 @@
+\section{Conclusion}
+\label{sec:conclusion}
+We reproduced Shaer, a fine-tuned LLM for controlled classical Arabic poetry, and examined what its meter metric
+measures. Re-scoring the released poems reproduced every published number, and the untuned baseline reproduced
+closely, but new generations from the released adapter and a full re-training scored about 15 points lower on
+base-meter accuracy, which points to undocumented details of the generation pipeline. We then built a formal verifier
+of Arabic prosody and showed that the published metric overstates validity: \val{mEzeroStrictValid}\% of the released
+poems are strictly valid in meter, rhyme and length, against \val{mRefStrictValid}\% of the human poems for the same
+prompts, \val{mEzeroNoReading}\% of the bayts that the classifier accepts contain a hemistich that cannot be read in the
+requested meter at all, and validity collapses as poems get longer. These findings held across nested models,
+alternative specifications, independent generation runs and control samples.
+
+Two lessons reach beyond this system. Generators of formal verse should be evaluated, and rewarded, by instruments that
+can reject, not only classify. And reproductions of LLM generation results need the generation precision, engine and
+checkpoint, not only the weights and the training script. The verifier, the analysis code and all predictions are
+public. Future work will complete the pre-registered extensions (hemistich search, self-training and the quality study),
+obtain an expert-labelled gold set for the verifier, and carry the approach to Urdu and Persian verse, whose meters
+derive from the same tradition.

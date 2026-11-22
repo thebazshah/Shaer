@@ -1,0 +1,57 @@
+\section{Introduction}
+\label{sec:intro}
+
+Classical Arabic poetry is written in lines called \emph{bayts}. Each bayt has two halves, or hemistichs, and every
+hemistich must follow one of sixteen quantitative meters, the \emph{bu\d{h}\=ur}, codified in the eighth century by
+al-Khal\={\i}l ibn A\d{h}mad~\cite{frolov2000classical}. Every bayt of a poem must also end on the same rhyme letter,
+the \emph{raw\={\i}}. These rules are strict. A reader trained in the tradition hears a missing syllable at once, and
+a teacher of Arabic literature will reject a poem with one broken hemistich. A system that claims to write classical
+Arabic verse therefore has a clear and checkable target.
+
+Large language models (LLMs) have made such systems easy to build. Shaer~\cite{abbas2026shaer} fine-tunes the Arabic
+model Yehia-7B~\cite{yehia2025} with QLoRA~\cite{dettmers2023qlora} on 116,032 poems from the Ashaar
+corpus~\cite{alyafeai2023ashaar}. A prompt names the meter, its sub-form, the number of hemistichs and a topic
+description, and the model writes the poem. The authors report a base-meter accuracy of 95.17\% and an exact length
+accuracy of 83.40\% on 3,481 held-out prompts, far above general Arabic models such as Fanar~\cite{fanar2026fanar2}.
+
+The meter numbers come from a bidirectional LSTM (BiLSTM) classifier~\cite{abandah2022classifying} that reads one
+bayt at a time and outputs the most likely meter. A classifier of this kind is trained to tell the sixteen meters
+apart. It is not trained to say ``this is not a meter at all''. A bayt that is one syllable short of al-K\=amil is
+still closer to al-K\=amil than to any other meter, so the classifier will label it al-K\=amil with high confidence.
+High accuracy under this metric may therefore hide many unmetrical lines. Rhyme is not checked at all.
+
+This paper is an empirical study of that gap. We first \emph{reproduce} Shaer end to end on Google Colab GPUs, and
+then \emph{extend} its evaluation with a formal verifier of Arabic prosody, which we use to measure how often the
+poems are actually correct and to guide generation and training. We ask three research questions:
+\begin{itemize}
+\item \textbf{RQ1 (reproduction).} Can Shaer's published results be reproduced from its released code, data and
+adapter, and where do the numbers differ?
+\item \textbf{RQ2 (measurement).} How often are the generated poems strictly valid in meter, rhyme and length, and how
+far does the classifier-based metric overstate this?
+\item \textbf{RQ3 (improvement).} Can the verifier raise strict validity when it is used at decoding time or to select
+training data, without hurting the quality of the poems?
+\end{itemize}
+
+\textbf{Contributions.} The paper makes the following contributions.
+\begin{enumerate}
+\item \emph{An independent reproduction} of Shaer (released poems, released adapter, untuned base model and a full
+re-training), reported next to the published numbers with an explanation of every difference
+(Section~\ref{sec:res-repro}).
+\item \emph{A formal, open verifier of classical Arabic prosody} that derives 1,867 hemistich patterns of 16 meters
+from the classical rules, scans undiacritised or partly diacritised text with a pronunciation prior, and checks
+rhyme (raw\={\i}, its vowel, \emph{ridf}, \emph{ta'\={\i}s}) and length (Section~\ref{sec:m1}).
+\item \emph{A strict re-scoring} of the reproduced systems and of the human poems, showing that strict validity is far
+below what the classifier metric suggests and that it falls with poem length (Section~\ref{sec:results}).
+\item \emph{A robustness analysis} with nested logistic models, nested definitions of validity, alternative settings
+and control samples (Section~\ref{sec:robust}).
+\item \emph{Three pre-registered extensions}: verifier-guided hemistich search compared with best-of-$N$ sampling at
+equal compute, self-training on verifier-approved poems, and a quality study with an LLM judge and blinded human
+raters. Their designs and predictions were fixed before the runs (Sections~\ref{sec:m4}--\ref{sec:m6}).
+\end{enumerate}
+
+The rest of the paper is organised as follows. Section~\ref{sec:lit} reviews related work and states the hypotheses.
+Section~\ref{sec:background} introduces the prosody needed to read the paper. Section~\ref{sec:methods} describes the
+techniques M0--M6 with examples from the data. Sections~\ref{sec:design} and~\ref{sec:setup} give the research
+design and the analysis setup. Sections~\ref{sec:results} and~\ref{sec:robust} report the results and the robustness
+checks. Section~\ref{sec:case} discusses a practical case, Section~\ref{sec:ethics} ethics and limitations, and
+Section~\ref{sec:conclusion} concludes.

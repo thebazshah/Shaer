@@ -1,0 +1,93 @@
+% Verifying the Verse -- IEEE conference paper.
+% Build: latexmk -lualatex main.tex   (LuaLaTeX is needed for the Arabic text; see README.md in this folder)
+\documentclass[conference]{IEEEtran}
+
+% ---------------------------------------------------------------- fonts and languages
+\usepackage{fontspec}
+\setmainfont{TeX Gyre Termes}
+\usepackage[english,bidi=basic]{babel}
+\babelprovide[import]{arabic}
+\babelfont[arabic]{rm}[Renderer=HarfBuzz,Scale=1.05]{Amiri}
+
+% ---------------------------------------------------------------- packages
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,backgrounds}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{cite}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% ---------------------------------------------------------------- macros
+\newcommand{\ar}[1]{\foreignlanguage{arabic}{#1}}
+% a result that is not available yet: shown in red so it cannot be missed
+\newcommand{\pending}[1]{\textcolor{red}{\textbf{[#1]}}}
+\newcommand{\TBD}{\pending{TBD}}
+% numbers produced by scripts/analysis.py; a number that has not been produced yet prints as a red placeholder
+\IfFileExists{generated/numbers.tex}{\input{generated/numbers.tex}}{}
+\newcommand{\val}[1]{\ifcsname #1\endcsname\csname #1\endcsname\else\TBD\fi}
+\newcommand{\pp}{\,pp}
+% table rows written by scripts/analysis.py (the TeX primitive \input works inside tabular)
+\makeatletter\newcommand{\rowsinput}[1]{\@@input #1 }\makeatother
+\newcommand{\Hyp}[1]{\textbf{H#1}}
+\graphicspath{{generated/}{figures/}}
+
+\begin{document}
+
+\title{Verifying the Verse: Reproducing Shaer and Extending Controlled Arabic Poetry Generation with a Formal Prosody Verifier}
+
+\author{\IEEEauthorblockN{Muhammad Shahbaz}
+\IEEEauthorblockA{\pending{Department, University}\\
+\pending{City, Country}\\
+\pending{email}}}
+
+\maketitle
+
+\begin{abstract}
+Large language models can now be asked for a classical Arabic poem in a given meter and length, and Shaer, a recent
+fine-tuned model, reports that 95.17\% of its poems are in the requested meter. That figure comes from a neural meter
+classifier that looks at each verse separately. We asked two questions: can the result be reproduced, and does it mean
+that the poems are metrically correct? We re-ran the whole Shaer pipeline on Google Colab GPUs. Re-scoring the released
+poems reproduced every published number exactly, but poems that we generated again with the released adapter reached
+\val{repEOneAcc}\% base-meter accuracy, and our re-trained model \val{repEThreeAcc}\%. We then built a rule-based verifier of
+classical prosody (\emph{\textquotesingle ar\=u\d{d}}) that scans every hemistich against the derived patterns of 16 meters
+and also checks rhyme and length. Under this strict criterion only \val{mEzeroStrictValid}\% of the released poems are
+fully valid, against \val{mRefStrictValid}\% of the human poems written for the same prompts, and validity falls sharply
+with poem length. Among the verses the classifier accepts, \val{mEzeroNoReading}\% of Shaer's have a hemistich with no
+reading at all in the requested meter. A logistic model, nested-model comparisons and controls confirm the pattern. We
+then describe and pre-register three extensions that use the verifier during generation and training (hemistich search,
+self-training and a quality study); their results are reported as placeholders until the runs finish. The study shows
+that a lenient metric can hide most formal errors and offers a reusable, open verifier for Arabic verse.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Arabic poetry generation, prosody, \textquotesingle ar\=u\d{d}, meter verification, controlled text generation,
+reproducibility, large language models, evaluation
+\end{IEEEkeywords}
+
+\input{sections/01_introduction}
+\input{sections/02_literature}
+\input{sections/03_background}
+\input{sections/04_methods}
+\input{sections/05_design}
+\input{sections/06_setup}
+\input{sections/07_results}
+\input{sections/08_robustness}
+\input{sections/09_case_study}
+\input{sections/10_ethics_limitations}
+\input{sections/11_conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\appendices
+\input{sections/12_appendix}
+
+\end{document}

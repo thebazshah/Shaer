@@ -1,0 +1,94 @@
+\section{Theoretical Background}
+\label{sec:background}
+
+\subsection{Classical Arabic prosody in brief}
+Arabic prosody, \emph{\textquotesingle ilm al-\textquotesingle ar\=u\d{d}}, describes a line as a sequence of
+\emph{moving} and \emph{resting} letters~\cite{frolov2000classical}. A moving letter (\emph{muta\d{h}arrik}) carries
+a short vowel; a resting letter (\emph{s\=akin}) carries none, as in a long vowel or a closed syllable. We write a
+moving letter as \texttt{1} and a resting one as \texttt{0}. The scansion works on the \emph{pronounced} text, so
+the article before a ``sun letter'' disappears, a doubled consonant (\emph{shadda}) counts twice, and nunation adds a
+final \emph{n}.
+
+Two small units build everything else: the \emph{sabab} (\texttt{10} or \texttt{11}) and the \emph{watad}
+(\texttt{110} or \texttt{101}). They combine into eight feet (\emph{taf\={a}\textquotesingle\={\i}l}), for example
+fa\textquotesingle\=ulun \texttt{11010}, maf\=a\textquotesingle\={\i}lun \texttt{1101010} and
+mutaf\=a\textquotesingle ilun \texttt{1110110}. A meter is a fixed sequence of feet. Al-\d{T}aw\={\i}l, the most
+common meter in the corpus, is
+\begin{center}
+fa\textquotesingle\=ulun \;maf\=a\textquotesingle\={\i}lun \;fa\textquotesingle\=ulun \;maf\=a\textquotesingle\={\i}lun
+\end{center}
+in each hemistich. Real lines rarely match the ideal feet exactly. Permitted changes called \emph{zi\d{h}\=af} may
+drop or quieten the second letter of a sabab anywhere in the line; for instance \emph{qab\d{d}} turns
+maf\=a\textquotesingle\={\i}lun \texttt{1101010} into maf\=a\textquotesingle ilun \texttt{110110}. Changes called
+\emph{\textquotesingle illa} act on the last foot of a hemistich and, once chosen, must be kept in every bayt. The last
+foot of the first hemistich is the \emph{\textquotesingle ar\=u\d{d}} and that of the second is the \emph{\d{d}arb};
+each meter allows only certain pairs of them. A meter can also appear in shortened \emph{forms}, such as the
+\emph{majz\=u\textquotesingle} form with one foot fewer per hemistich. Shaer's 21 labels are combinations of 13 base
+meters and these forms.
+
+Table~\ref{tab:scan-example} scans the first bayt of a human poem from the test split, written for prompt
+\texttt{shaer\_test\_000022} in al-\d{T}aw\={\i}l. Both hemistichs match the meter with \emph{qab\d{d}} in some feet,
+which is allowed.
+
+\begin{table}[t]
+\centering
+\caption{Scansion of a human bayt in al-\d{T}aw\={\i}l (test prompt 000022), as produced by our verifier.}
+\label{tab:scan-example}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l l@{}}
+\toprule
+Sadr (first hemistich) & \ar{وَلاحَت لَنا أَبياتُ آلِ مُحَرِّقٍ} \\
+Pattern & \texttt{11010 | 1101010 | 1101 | 110110} \\
+Feet & fa\textquotesingle\=ulun $|$ maf\=a\textquotesingle\={\i}lun $|$ fa\textquotesingle\=ulu (qab\d{d}) $|$ maf\=a\textquotesingle ilun (qab\d{d}) \\
+\midrule
+\textquotesingle Ajuz (second) & \ar{بِها اللُؤمُ ثاوٍ لا يَروحُ وَلا يَغدو} \\
+Pattern & \texttt{11010 | 110110 | 1101 | 1101010} \\
+Feet & fa\textquotesingle\=ulun $|$ maf\=a\textquotesingle ilun (qab\d{d}) $|$ fa\textquotesingle\=ulu (qab\d{d}) $|$ maf\=a\textquotesingle\={\i}lun \\
+\midrule
+Raw\={\i} & \ar{د} (both bayts of the poem end in \ar{ـدُ}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rhyme (\emph{q\=afiya}).} Every bayt ends on the same rhyme letter, the raw\={\i}, here \ar{د}. Its vowel (the
+\emph{majr\=a}) must also stay the same; changing it is the fault called \emph{iqw\=a\textquotesingle}. If a long vowel
+stands just before the raw\={\i} (\emph{ridf}), or an alif two letters before it (\emph{ta'\={\i}s}), it must
+appear in every bayt or in none. A poem may also \emph{connect} its two hemistichs by splitting a word across them
+(\emph{tadw\={\i}r}), as in this human bayt in al-Khaf\={\i}f from the test split:
+\begin{center}
+\ar{ربما تجزع النفوس من الامر \quad له فرجة كحل العقال}
+\end{center}
+In pronunciation the word \ar{الامر} (\emph{al-amri}) is split between the hemistichs, although the corpus writes all of
+it in the first one. Neither half scans alone; the bayt scans only as one connected line.
+
+\subsection{Constructs and their definitions}
+The study measures a small set of constructs. Table~\ref{tab:constructs} defines each one and states how it is
+measured. The first four are Shaer's published metrics; the others are introduced or adapted in this work. Formal
+definitions follow in Section~\ref{sec:eq}.
+
+\begin{table}[t]
+\centering
+\caption{Constructs, their definitions and how they are measured.}
+\label{tab:constructs}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{2.1cm} >{\raggedright\arraybackslash}X@{}}
+\toprule
+Construct & Definition and measurement \\
+\midrule
+Base-meter accuracy & Share of poems whose first bayt the BiLSTM classifies as the requested base meter~\cite{abbas2026shaer} \\
+Meter conformity & Mean per-poem score; a poem's score is the geometric mean of the BiLSTM's probability of the requested meter over its bayts \\
+Exact count accuracy & Share of poems with exactly the requested number of hemistichs \\
+Count adherence & Mean of $\max(0, 1-|\hat{n}-n|/n)$ over poems, $\hat{n}$ generated and $n$ requested hemistichs \\
+\midrule
+Base criterion & A poem passes if the BiLSTM labels every scored bayt with the requested meter and the length is exact (the strictest reading of Shaer's metrics) \\
+Bayt validity & The verifier accepts both hemistichs in the requested meter and form and their \textquotesingle ar\=u\d{d}/\d{d}arb pair is permitted (or the bayt scans as a connected tadw\={\i}r line) \\
+Meter validity & Every bayt is valid and the \textquotesingle ar\=u\d{d} and \d{d}arb forms stay consistent across the poem \\
+Rhyme validity & One raw\={\i}, one majr\=a, and ridf and ta'\={\i}s all-or-none \\
+Strict validity & Meter validity, rhyme validity, the exact requested length and an even number of hemistichs, all together \\
+No-reading rate & Share of BiLSTM-accepted bayts with a hemistich that has no reading at all in the requested meter (independent of the margin rule) \\
+Instrument agreement & Cohen's $\kappa$ between BiLSTM and verifier verdicts per bayt \\
+Quality & LLM-judge scores (1--5) for description adherence, meaning, fluency, coherence and poeticness~\cite{abbas2026shaer}; distinct-$n$; copied hemistichs; blinded human ratings (M6) \\
+\bottomrule
+\end{tabularx}
+\end{table}

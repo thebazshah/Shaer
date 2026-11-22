@@ -1,0 +1,57 @@
+\section{Consent Form for the Human Rating Study}
+\label{app:consent}
+
+\noindent\textbf{Study title:} Quality of machine-generated classical Arabic poetry.\\
+\textbf{Researcher:} Muhammad Shahbaz, \pending{department and university}; contact \pending{email}.\\
+\textbf{Supervisor:} \pending{name}.
+
+\smallskip
+\noindent\textbf{What the study is about.} We are studying computer programs that write classical Arabic poems. You
+will read about 120 short poems. Some were written by people and some by computer programs; you will not be told which.
+
+\smallskip
+\noindent\textbf{What you will do.} For each poem you will give four ratings from 1 (very poor) to 5 (excellent):
+overall quality, meaning, fluency, and how the meter sounds when read aloud. This takes about two hours and can be done
+in several sittings.
+
+\smallskip
+\noindent\textbf{Voluntary participation.} Taking part is voluntary. You may stop at any time without giving a reason
+and without any consequence. If you stop, you may ask us to delete the ratings you have given.
+
+\smallskip
+\noindent\textbf{Anonymity and data.} Your ratings will be stored under a random code. Your name and contact details
+will be kept separately and will not be linked to your ratings in any file we share or publish. Only averages over
+raters will be published. The data will be kept for \pending{period} and then deleted.
+
+\smallskip
+\noindent\textbf{Risks and benefits.} There are no known risks beyond the time spent. Some poems may contain classical
+themes such as war or loss. There is no direct benefit to you; the results will help to build better tools for Arabic
+literature and teaching.
+
+\smallskip
+\noindent\textbf{Questions.} You can contact the researcher or \pending{the ethics committee} at any time.
+
+\smallskip
+\noindent\textbf{Consent.} I have read this information, I have had the chance to ask questions, and I agree to take
+part.
+
+\smallskip
+\noindent Rater code: \rule{2.5cm}{0.4pt} \quad Signature: \rule{3cm}{0.4pt} \quad Date: \rule{2cm}{0.4pt}
+
+\section{Reproducibility Checklist}
+\label{app:repro}
+Following Pineau et al.~\cite{pineau2021reproducibility}, we list what is needed to repeat every number in this paper.
+\begin{itemize}
+\item \textbf{Code:} the baseline notebook \texttt{colab/reproduce\_shaer\_a100.ipynb} (E0--E3) and the research notebook
+\texttt{prosody-verifier/prosody\_main.ipynb} (M0--M6), both runnable on Google Colab; the verifier in
+\texttt{prosody-verifier/prosody/}; the analysis in \texttt{prosody-verifier/paper/scripts/analysis.py}.
+\item \textbf{Data:} the Shaer splits and released poems from the authors' Hugging Face repositories; the pronunciation
+lexicon built from the training split and shipped with the code.
+\item \textbf{Versions:} every verifier record carries the hashes of the verifier and the lexicon; the notebooks check
+their own version against the code.
+\item \textbf{Randomness:} generation seed 42; bootstrap seed 7; M4 development subset seed 2026.
+\item \textbf{Pre-registration:} the expectations of M3--M6 were committed to the repository before the corresponding
+runs, in \texttt{prosody-verifier/validation/}.
+\item \textbf{Tests:} the repository's test suite covers the rule tables (textbook equalities), the reading rules, the
+rhyme rules, the search, the data builders and the report generators.
+\end{itemize}

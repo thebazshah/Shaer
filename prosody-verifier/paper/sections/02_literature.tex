@@ -1,0 +1,187 @@
+\section{Literature Review and Hypotheses}
+\label{sec:lit}
+
+\subsection{How the literature was collected}
+The review draws on a systematic literature search that we carried out for a wider project on poetry generation in
+Arabic-script languages, following the PRISMA~2020 flow. Search strings for generation, meter, rhyme, evaluation and
+low-resource languages were run on Semantic Scholar, arXiv, the ACL Anthology and Crossref. They returned 33,279
+records, of which 19,213 were unique. Automated rules (a Boolean match and a computational-study filter) kept 5,531 for
+title and abstract screening, and forward and backward snowballing from 21 seed papers added further candidates. In
+total 1,040 studies from 2024 to 2026 were included and graded by closeness to the topic: 55 core, 228 high and 757
+related. For this paper we read the core and high studies on our six aspects and kept the 40 closest. We added a few
+earlier foundational works (Deep-speare, PoeLM, ByGPT5) and the methods we borrow from other fields (verifiers,
+self-training, statistics). The 40 studies are grouped into six themes below. Where we read only an abstract, we
+report only what the abstract states.
+
+\subsection{Theme A: Form-controlled poetry generation}
+Early neural systems learned meter and rhyme jointly with the language model. Deep-speare~\cite{lau2018deepspeare}
+trained separate meter and rhyme components for English sonnets, and PoeLM~\cite{ormazabal2022poelm} put control codes
+for syllable counts and rhyme into the prompt of a Spanish and Basque language model, filtering samples afterwards.
+ByGPT5~\cite{belouadi2023bygpt5} showed that a token-free (byte-level) model controls meter and rhyme better than a
+subword model of similar size, and CharPoet~\cite{yu2024charpoet} and GPT Czech Poet~\cite{chudoba2024gptczechpoet}
+reached the same conclusion for Chinese and Czech: when the unit of the form is a character or a syllable, a tokeniser
+that splits words into arbitrary pieces makes control harder. Liao and Shi~\cite{liao2026tokenization} give a
+direct measurement of this effect, showing that subword tokenisation weakens a model's knowledge of rhyme and
+syllables.
+
+Other work places the form outside the language model. PoetryDiffusion~\cite{hu2024poetrydiffusion} uses a separately
+trained metrical controller to steer a diffusion model at every denoising step, with a per-position template for line
+ends. PoeTone~\cite{qu2025poetone} evaluates 18 LLMs on Chinese \emph{Songci} templates and adds a Generate--Critic loop
+that keeps the best of several candidates. BIPro~\cite{zou2025bipro} constrains generation block by block through
+inverse prompting, and Chakrabarty et al.~\cite{chakrabarty2022helpme} show that instruction tuning lets a model
+follow form requests written in plain language. Across these studies the form is either learned or checked by a
+component that is itself learned; a deterministic rule-based checker inside the loop is rare.
+
+\subsection{Theme B: Arabic and quantitative-meter generation}
+Shaer~\cite{abbas2026shaer}, our base paper, is the closest work. It conditions Yehia-7B on a meter sub-form, a
+hemistich count and a topic description, trains with QLoRA and completion-only loss, and evaluates meter with the
+BiLSTM of Abandah et al.~\cite{abandah2022classifying}. The authors also release adapters trained with reinforcement
+learning against that classifier. Fanar-Diwan, part of the Fanar~2.0 stack~\cite{fanar2026fanar2}, conditions classical
+poetry on meter, rhyme, topic, era and poet. Ashaar~\cite{alyafeai2023ashaar} provides the corpus and an earlier
+generator. Sadallah et al.~\cite{sadallah2026instructpoet} build instruction data for writing, revising and continuing
+poems in Arabic and its dialects under style and rhyme criteria. Ta\d{h}dh\={\i}b~\cite{elzohbi2025tahdib} is the
+only Arabic work we found that uses a rule-based rhythm: it maps diacritised script to beats with rules and fills
+phrases with a byte-level model to hit a target rhythm.
+
+Sanskrit, whose meters are also quantitative, gives the strongest evidence for checking at decoding time.
+Chandomitra~\cite{jagadeeshan2026chandomitra} reports that constrained decoding raises metrical validity to 99.86\%
+while GPT-4o with one example reaches 31\%, and Pingala~\cite{jagadeeshan2026pingala} decodes over syllable-weight
+patterns and gains further by working in a phonetic transliteration. Low-resource Perso-Arabic and South Asian work
+follows the same direction with smaller models: UPON~\cite{tabassam2025upon} generates Urdu couplets in one meter and
+filters them with a rule-based scansion tool, Pashto generation~\cite{ullah2024pashto} fine-tunes small transformers,
+and Bangla form-aware generation~\cite{amina2025bangla} uses control tokens for meter, rhyme and line boundaries.
+
+\subsection{Theme C: Computational prosody and meter classification}
+Most Arabic work on meter is classification. Abandah et al.~\cite{abandah2022classifying} classify and diacritise
+poems with recurrent networks, Mutawa and Alrumaih~\cite{mutawa2025arabicmeter} compare deep character-level
+classifiers over the 16 meters, and AraPoemBERT~\cite{qarah2024arapoembert} pre-trains a model on poetry and fine-tunes
+it for meter and sub-form. These systems choose the most likely meter among a closed set. They do not decide whether a
+line is metrical, and they do not say where it breaks. Rule-based scansion exists for neighbouring traditions:
+UPMVM~\cite{zaman2025upmvm} verifies Urdu meters with finite automata over 290 meters and sub-meters, Persian prosody
+recognition~\cite{shahrestani2025persianprosody} and the Chaame rhyme and \emph{radif}
+dataset~\cite{rezaei2026chaame} address Persian, and De Sisto et al.~\cite{desisto2024poetrytools} survey open
+scansion and rhyme tools across languages. The systematic review of Alharthi~\cite{alharthi2026arabicpoetryslr} lists
+the tasks, data sets and evaluation practice of Arabic poetry NLP. The rules themselves are documented in classical
+and modern prosody textbooks such as Frolov~\cite{frolov2000classical}.
+
+\subsection{Theme D: Constraints, verifiers and test-time compute}
+Controlled text generation has two broad families. Decoding-time methods change the next-token distribution or the
+search: FUDGE~\cite{yang2021fudge} reweights tokens with a discriminator of the future, and NeuroLogic
+decoding~\cite{lu2021neurologic} keeps beams that satisfy lexical constraints. Sampling settings such as nucleus
+sampling~\cite{holtzman2020curious} decide how diverse each candidate is. In reasoning tasks, a separate
+\emph{verifier} that scores whole solutions~\cite{cobbe2021verifiers} or each step~\cite{lightman2024verify} raises
+accuracy when the model is sampled several times, and Snell et al.~\cite{snell2025scaling} show that how the extra
+test-time compute is spent (parallel samples or guided search) matters as much as its amount. Poetry has the rare
+property that a step-level verifier can be exact: a hemistich either scans or it does not. This is the idea behind our
+hemistich search (Section~\ref{sec:m4}), and it is why we compare it with best-of-$N$ at the same compute.
+
+\subsection{Theme E: Refinement, reinforcement learning and self-training}
+A checker can also improve the model itself. STaR~\cite{zelikman2022star}, rejection-sampling fine-tuning~\cite{yuan2023rft}
+and ReST~\cite{gulcehre2023rest} fine-tune a model on its own outputs that pass a check, and GRPO~\cite{shao2024deepseekmath}
+uses group-relative rewards. In poetry, Xunzi Yayun R1~\cite{zhao2025xunziyayun} trains with GRPO and rule-based rewards
+for tone, rhyme, parallelism and length, and Progressive Structural Internalization~\cite{li2026psi} first scaffolds the
+format and then removes the scaffold with cascaded reinforcement learning. Refinement loops fix a poem after it is
+written: Agirrezabal and Gon\c{c}alo Oliveira~\cite{agirrezabal2025refining} feed the output of an LLM or rule-based
+metrical evaluator back to the generator and find that feedback helps in both cases, and Chen and
+Cao~\cite{chen2024polishing} detect and replace words that break classical Chinese norms. Zhang and
+Eger~\cite{zhang2026multiagent} find that agents that critique each other through prompts alone tend to make poems more
+alike, which argues for a programmatic critic. Shaer's released reinforcement-learning adapters are rewarded by the
+same BiLSTM that evaluates them, so any weakness of the classifier is also a weakness of the reward.
+
+\subsection{Theme F: Evaluating generated poetry}
+Koziev and Sinev~\cite{koziev2026survey} survey generation and evaluation from 2017 to 2025 and note that formal
+correctness is often measured by learned models or not at all. POEMetric~\cite{wang2026poemetric} combines rule-based
+form checks with an LLM judge over 30 models and seven forms. Heuser~\cite{heuser2025generative} finds that LLM verse in
+English is metrically over-regular, so validity is not the only formal property worth measuring.
+Chen et al.~\cite{chen2024diversity} show that generated poems are less diverse than human ones, and Porter and
+Machery~\cite{porter2024aipoetry} find that non-expert readers cannot tell AI poems from human ones and often prefer
+them, which warns against relying on non-expert ratings alone. LLM judges~\cite{zheng2023judge} are widely used,
+including by Shaer, and Fann or Flop~\cite{alghallabi2025fann} shows that LLMs still struggle to \emph{understand}
+Arabic poetry across genres and eras, which limits how far a judge can be trusted on form.
+
+\subsection{Comparison with recent studies}
+Table~\ref{tab:lit-compare} compares 13 recent studies with ours on the points that matter here: which formal
+constraints are controlled, how, what checks the form, and whether that check is exact and used during generation or
+training. ``n.s.'' marks information that the sources we screened do not state.
+
+\begin{table*}[t]
+\centering
+\caption{Comparison of recent form-controlled poetry generation studies (2024--2026) with this work.}
+\label{tab:lit-compare}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.3cm} c >{\raggedright\arraybackslash}p{1.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X c c@{}}
+\toprule
+Study & Year & Language & Constraints controlled & Control method & Form checked by & Rule-based & Used in loop \\
+\midrule
+Shaer~\cite{abbas2026shaer} & 2026 & Arabic (classical) & meter, sub-form, length, topic & SFT conditioning; RL adapters & BiLSTM meter classifier & no & RL reward \\
+Fanar-Diwan~\cite{fanar2026fanar2} & 2026 & Arabic (classical) & meter, rhyme, topic, era, poet & conditioning & n.s. & n.s. & n.s. \\
+Sadallah et al.~\cite{sadallah2026instructpoet} & 2026 & Arabic + dialects & style, rhyme & instruction tuning & n.s. & n.s. & n.s. \\
+Ta\d{h}dh\={\i}b~\cite{elzohbi2025tahdib} & 2025 & Arabic (classical) & rhythm of an inserted phrase & rule-based beats + byte-level infilling & rules & yes & yes \\
+Chandomitra~\cite{jagadeeshan2026chandomitra} & 2026 & Sanskrit & meter & constrained decoding & meter rules & yes & yes \\
+Pingala~\cite{jagadeeshan2026pingala} & 2026 & Sanskrit & meter & syllable-weight decoding & meter rules & yes & yes \\
+UPON~\cite{tabassam2025upon} & 2025 & Urdu & one meter & char-LSTM / seq2seq + filter & scansion tool & yes & filter \\
+Bangla~\cite{amina2025bangla} & 2025 & Bangla & meter, rhyme, words, lines & control tokens & n.s. & n.s. & no \\
+PoeTone~\cite{qu2025poetone} & 2026 & Chinese (Songci) & tone, rhyme, length templates & prompting + Generate--Critic & conformity score & n.s. & best-of-$N$ \\
+Xunzi Yayun R1~\cite{zhao2025xunziyayun} & 2025 & Chinese (Tang) & tone, rhyme, parallelism, length & GRPO + retrieval & rule-based rewards & yes & RL reward \\
+PSI~\cite{li2026psi} & 2026 & Chinese & format, phonetics, rhyme & scaffolding + cascaded RL & holistic reward & n.s. & RL reward \\
+PoetryDiffusion~\cite{hu2024poetrydiffusion} & 2024 & English, Chinese & meter, rhyme, format & diffusion + metrical controller & learned classifiers & no & every step \\
+Agirrezabal \& Gon\c{c}alo Oliveira~\cite{agirrezabal2025refining} & 2025 & n.s. & meter & generate--evaluate--feedback & LLM or rule-based tool & both & feedback \\
+\midrule
+\textbf{This work} & 2026 & Arabic (classical) & meter, sub-form, rhyme, length & reproduction; hemistich search; self-training & derived \emph{\textquotesingle ar\=u\d{d}} rules + lexicon prior & \textbf{yes} & \textbf{search, data, eval} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Research gaps}
+Table~\ref{tab:gaps} lists the gaps that this study addresses, the evidence for each and how we address it.
+
+\begin{table}[t]
+\centering
+\caption{Research gaps, the evidence for them and how this study addresses them.}
+\label{tab:gaps}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{1.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.0cm}@{}}
+\toprule
+Gap & Evidence & How addressed \\
+\midrule
+G1: Arabic meter is evaluated by classifiers, not verified & Shaer, Ashaar and Fanar-Diwan report classifier accuracy~\cite{abbas2026shaer,abandah2022classifying,mutawa2025arabicmeter} & M1 verifier; M3 re-scoring \\
+G2: Rhyme is not checked in Arabic generation & No rhyme metric in Shaer; rhyme checks exist for Persian~\cite{rezaei2026chaame} & Raw\={\i}, vowel, ridf, ta'\={\i}s checks (M1) \\
+G3: Results of LLM poetry papers are rarely reproduced & Reproducibility concerns in ML~\cite{pineau2021reproducibility}; no independent Shaer run & Full reproduction E0--E3 \\
+G4: Exact checkers are not used at decoding time for Arabic & Constrained decoding works for Sanskrit~\cite{jagadeeshan2026chandomitra}; Arabic work conditions only & M4 hemistich search \\
+G5: RL and self-training use learned rewards for form & Shaer's RL reward is the evaluating BiLSTM & M5 self-training with a rule-based gate \\
+G6: Validity gains are rarely checked for quality loss & Diversity loss~\cite{chen2024diversity}; homogenisation~\cite{zhang2026multiagent} & M6 judge, diversity, copying, human study \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Hypotheses}
+\label{sec:hyp}
+The review leads to eight hypotheses. H1--H3 concern measurement (RQ2) and were tested in this paper; H4--H8 concern
+improvement (RQ3) and were fixed before their runs.
+
+\textbf{H1.} A classifier picks the closest meter even for a broken line (Theme C), so \emph{the BiLSTM criterion
+accepts many more generated bayts than the strict verifier, and the gap is larger for generated poems than for human
+poems.}
+
+\textbf{H2.} Fine-tuned models still make formal errors that the evaluation does not see (Themes A and F), so
+\emph{Shaer's released poems are strictly valid less often than the human poems written for the same prompts.}
+
+\textbf{H3.} Every extra hemistich is another chance to break the meter or the rhyme, so \emph{strict validity
+decreases as the requested length increases.}
+
+\textbf{H4.} Step-level verification spends compute where errors happen (Theme D), so \emph{at equal generation
+budget, verifier-guided hemistich search gives a higher strict-validity rate than best-of-$N$ sampling.}
+
+\textbf{H5.} A gain that only the selecting verifier can see may be an artefact, so \emph{the gain of H4 also appears
+under instruments that did not select the poems (the BiLSTM and the binding mode of the verifier).}
+
+\textbf{H6.} Shaer's prompt never names the rhyme, so \emph{adding the raw\={\i} to the prompt raises the rhyme pass
+rate over the like-for-like baseline E3.}
+
+\textbf{H7.} Self-training on verified outputs improves reasoning models (Theme E), so \emph{one round of training on
+the model's own verifier-approved poems raises strict validity over training on the corpus alone.}
+
+\textbf{H8.} Stronger form control may cost meaning or variety (Theme F), so we test the null hypothesis that
+\emph{validity gains do not reduce quality}: judge scores within 0.2 points, distinct-2 within 3 points and copied
+lines at most twice the baseline's.

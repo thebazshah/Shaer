@@ -1,0 +1,221 @@
+\section{Conceptual Model and Research Design}
+\label{sec:design}
+
+\subsection{Conceptual model}
+Fig.~\ref{fig:model} shows the conceptual model. The \emph{generation strategy} (how the model was trained and how it
+is decoded) determines the \emph{formal validity} of a poem, and validity together with the strategy determines the
+poem's \emph{quality}. The requested length and the meter moderate the effect on validity. The \emph{author}
+(model or human) is the reference contrast. The \emph{measurement instrument} sits outside the causal chain: it is how
+validity is observed, and H1 and H5 are hypotheses about the instrument itself.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw=black!70, rounded corners=2pt, fill=#1, align=center, inner sep=4pt, minimum height=1.0cm},
+  box/.default={blue!6},
+  arr/.style={-{Stealth[length=2.2mm]}, thick, draw=black!70},
+  hyp/.style={fill=white, inner sep=1.5pt, font=\scriptsize\bfseries}]
+\node[box={orange!10}, text width=4.4cm] (gen) {\textbf{Generation strategy}\\[2pt]
+  fine-tuning: E1 (released), E3 (re-trained)\\ decoding: I0, best-of-$N$, hemistich search (M4)\\
+  training data: 2a, 2b, 2c (M5)};
+\node[box, text width=3.4cm, right=1.8cm of gen] (val) {\textbf{Formal validity}\\[2pt] meter (every bayt)\\ rhyme
+  (raw\={\i}, majr\=a, ridf)\\ length (exact, even)};
+\node[box={green!8}, text width=3.4cm, right=1.8cm of val] (qual) {\textbf{Quality}\\[2pt] LLM judge (5 items)\\
+  diversity and copying\\ blinded human ratings};
+\node[box={gray!10}, text width=3.4cm, above=0.8cm of val] (mod) {\textbf{Moderators}\\ requested length, meter};
+\node[box={gray!10}, text width=3.0cm, above=0.8cm of gen] (auth) {\textbf{Author}\\ human vs.\ model};
+\node[box={yellow!12}, text width=5.6cm, below=0.8cm of val] (inst) {\textbf{Measurement instrument}\\ base: BiLSTM
+  classifier + exact length \quad extended: verifier (letters, binding)};
+\draw[arr] (gen) -- node[hyp, above] {H4, H6, H7} (val);
+\draw[arr] (val) -- node[hyp, above] {H8} (qual);
+\draw[arr] (gen.south) -- ++(0,-2.35) -| node[hyp, pos=0.25, above] {H8 (strategy $\rightarrow$ quality)} (qual.south);
+\draw[arr] (mod) -- node[hyp, right] {H3} (val);
+\draw[arr] (auth.south east) -- node[hyp, above, sloped] {H2} (val.north west);
+\draw[arr, dashed] (inst) -- node[hyp, right] {H1, H5} (val);
+\end{tikzpicture}
+\caption{Conceptual model. Solid arrows are hypothesised effects; the dashed arrow is the measurement relation tested by
+H1 (does the base instrument overstate validity?) and H5 (do gains hold under instruments that did not select the
+poems?).}
+\label{fig:model}
+\end{figure*}
+
+\subsection{Research design and flow}
+The study is a quantitative, comparative design with paired observations: every system answers the same 3,481 test
+prompts, so differences between systems are measured on the same prompts. Fig.~\ref{fig:flow} shows the flow from the
+base paper to the analysis.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  st/.style={draw=black!70, rounded corners=2pt, fill=#1, align=center, text width=2.15cm, minimum height=1.05cm, inner sep=2pt},
+  st/.default={blue!6},
+  arr/.style={-{Stealth[length=2mm]}, thick, draw=black!70},
+  lab/.style={font=\scriptsize\itshape, text=black!60}]
+\node[st={gray!10}] (paper) {Shaer paper, code, data and adapter};
+\node[st={orange!10}, right=0.45cm of paper] (repro) {\textbf{Reproduction}\\ E0 re-score, E1 re-generate, E2 untuned, E3 re-train};
+\node[st, right=0.45cm of repro] (m0) {\textbf{M0} headroom audit (length, rhyme, diacritics)};
+\node[st, right=0.45cm of m0] (m1) {\textbf{M1} verifier: rules, prior, scansion, rhyme};
+\node[st={gray!10}, right=0.45cm of m1] (m2) {\textbf{M2} expert gold set (planned)};
+\node[st, below=0.75cm of m2] (m3) {\textbf{M3} strict re-scoring of human, E0--E3 + controls};
+\node[st={green!8}, left=0.45cm of m3] (m4) {\textbf{M4} hemistich search vs.\ best-of-$N$};
+\node[st={green!8}, left=0.45cm of m4] (m5) {\textbf{M5} self-training 2a, 2b, 2c};
+\node[st={green!8}, left=0.45cm of m5] (m6) {\textbf{M6} judge, diversity, human study};
+\node[st={yellow!12}, left=0.45cm of m6] (ana) {\textbf{Analysis}: bootstrap, McNemar, logistic models, robustness};
+\foreach \a/\b in {paper/repro, repro/m0, m0/m1, m1/m2, m3/m4, m4/m5, m5/m6, m6/ana} \draw[arr] (\a) -- (\b);
+\draw[arr] (m1.south) |- ($(m3.north)+(0,0.25)$) -- (m3.north);
+\draw[arr, dashed] (m2.south) -- (m3.north);
+\node[lab, above=0.05cm of repro] {RQ1};
+\node[lab, above=0.05cm of m1] {RQ2};
+\node[lab, below=0.05cm of m5] {RQ3};
+\end{tikzpicture}
+\caption{Research flow. Blue: built and run; green: built and validated, runs in progress; grey: input or planned.
+Each step reads only the outputs of earlier steps, and the baseline's files are never modified.}
+\label{fig:flow}
+\end{figure*}
+
+\subsection{Hypotheses and equations}
+\label{sec:eq}
+The hypotheses H1--H8 were stated in Section~\ref{sec:hyp}. Table~\ref{tab:notation} lists the symbols used in the
+equations below.
+
+\begin{table}[t]
+\centering
+\caption{Notation.}
+\label{tab:notation}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}l X@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$p$, $q$ & a poem; a test prompt ($q = 1,\dots,Q$, $Q = 3{,}481$) \\
+$n$, $\hat{n}$ & requested and generated number of hemistichs \\
+$b$, $B(p)$ & a bayt; the set of bayts of poem $p$ \\
+$m$, $f$ & requested meter and form \\
+$c(r \mid w)$, $C(a)$ & cost of reading $r$ of word $w$; cost of analysis $a$ \\
+$C_{\max}$, $\delta$ & cost cap (6.0) and margin (1.5) of the verifier \\
+$V(p)$, $G(p)$ & strict validity; base criterion (0 or 1) \\
+$\mathrm{BI}(b)$ & BiLSTM verdict for bayt $b$ (1 if predicted meter $=m$) \\
+$\bar{V}_s$ & strict-validity rate of system $s$ \\
+$\Delta_{s,t}$ & paired difference in rates between systems $s$ and $t$ \\
+$n_{01}$, $n_{10}$ & discordant pairs in McNemar's test \\
+$\kappa$, $p_o$, $p_e$ & Cohen's kappa; observed and chance agreement \\
+$\beta$, $x_p$ & logistic coefficients; predictor vector of poem $p$ \\
+$\ell$, $\ell_0$ & log-likelihood of a model and of the intercept-only model \\
+$\psi$ & share of discordant pairs (power analysis) \\
+$\lambda_i$, $\alpha_C$ & standardised loading of item $i$; Cronbach's alpha \\
+$z_{\gamma}$ & standard normal quantile \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Validity.} A poem $p$ is strictly valid when
+\begin{equation}
+\begin{split}
+V(p) = \mathbb{1}\Big[&\textstyle\bigwedge_{b \in B(p)} \mathrm{ok}_{m,f}(b) \wedge \mathrm{cons}(p) \\
+&\wedge \mathrm{rhyme}(p) \wedge \hat{n} = n \wedge \hat{n} \bmod 2 = 0\Big],
+\end{split}
+\label{eq:strict}
+\end{equation}
+where $\mathrm{ok}_{m,f}(b)$ is bayt validity (both halves accepted by \eqref{eq:accept} and a permitted pair, or a
+valid tadw\={\i}r line), $\mathrm{cons}(p)$ the consistency of the \textquotesingle ar\=u\d{d} and \d{d}arb forms and
+$\mathrm{rhyme}(p)$ the rhyme check. The base criterion, the strictest reading of Shaer's metrics, is
+\begin{equation}
+G(p) = \mathbb{1}\Big[\textstyle\bigwedge_{b \in B(p)} \mathrm{BI}(b) \wedge \hat{n} = n\Big].
+\label{eq:base}
+\end{equation}
+\textbf{Rates and paired differences.} For system $s$, $\bar{V}_s = \frac{1}{Q}\sum_{q} V(p_{s,q})$, and the paired
+difference between systems $s$ and $t$ is
+\begin{equation}
+\Delta_{s,t} = \frac{1}{Q}\sum_{q=1}^{Q}\big(V(p_{s,q}) - V(p_{t,q})\big).
+\label{eq:delta}
+\end{equation}
+Confidence intervals are percentile intervals from 5,000 bootstrap resamples of the prompts~\cite{efron1979bootstrap}.
+\textbf{McNemar's test}~\cite{mcnemar1947note} compares two systems on the same prompts:
+\begin{equation}
+\chi^2 = \frac{(n_{01} - n_{10})^2}{n_{01} + n_{10}},
+\label{eq:mcnemar}
+\end{equation}
+with the exact binomial version when $n_{01}+n_{10} < 25$. \textbf{Agreement} between the BiLSTM and the verifier is
+Cohen's~\cite{cohen1960kappa}
+\begin{equation}
+\kappa = \frac{p_o - p_e}{1 - p_e}.
+\label{eq:kappa}
+\end{equation}
+\textbf{Structural model.} The probability that a poem is valid is modelled by logistic regression on the system,
+the requested length bucket and the meter,
+\begin{equation}
+\log\frac{P(Y_p = 1)}{1 - P(Y_p = 1)} = \beta_0 + \sum_{s}\beta_s S_{ps} + \sum_{l}\gamma_l L_{pl} + \sum_{k}\mu_k M_{pk},
+\label{eq:logit}
+\end{equation}
+where $Y_p$ is $G(p)$ (base model) or $V(p)$ (extended model), and $S$, $L$ and $M$ are indicators with E0, 1--3
+bayts and al-\d{T}aw\={\i}l as reference levels. Fit is reported as McFadden's $R^2 = 1 - \ell/\ell_0$ and
+$\mathrm{AIC} = 2k - 2\ell$ for $k$ parameters, and nested models are compared with the likelihood-ratio statistic
+$\mathrm{LR} = 2(\ell_{\text{larger}} - \ell_{\text{smaller}})$, which follows $\chi^2$ with the difference in $k$ as
+degrees of freedom. Coefficient intervals come from 5,000 bootstrap resamples of prompts (a cluster bootstrap, since the
+poems of all systems for one prompt are resampled together).
+
+\subsection{Sampling}
+\textbf{Main sample.} The 3,481 test prompts of Shaer, a stratified 3\% sample of the corpus by meter, form and length.
+For every prompt we have the human poem and one poem from each of E0--E3.
+\textbf{Additional samples.} (i) The poems we generated ourselves (E1, E3), which test whether the findings on the
+released poems hold for an independent generation and training run; (ii) the evaluation split (3\% of the corpus), used only
+to tune the verifier's margin; (iii) a seeded subset of 400 evaluation prompts for the M4 development sweep; and
+(iv) 40 seeded test prompts for the human study.
+\textbf{Control samples.} The wrong-meter and mixed-rhyme controls of Section~\ref{sec:m3}.
+
+\subsection{Instruments}
+Table~\ref{tab:instruments} lists every instrument and its source. All instruments from the base paper are used
+unchanged.
+
+\begin{table}[t]
+\centering
+\caption{Instruments and their sources.}
+\label{tab:instruments}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}X@{}}
+\toprule
+Instrument & Source \\
+\midrule
+BiLSTM meter classifier & Abandah et al.~\cite{abandah2022classifying}, as packaged and used by Shaer~\cite{abbas2026shaer} \\
+Structural scorer (count, meter) & Shaer's evaluation code, unchanged \\
+LLM judge, prompts (strict v2) & Shaer's evaluation code, unchanged \\
+Prosody verifier & This work (M1), from the classical rules~\cite{frolov2000classical} \\
+Pronunciation prior & This work, counted on the training split only \\
+Diversity (distinct-$n$) & Chen et al.~\cite{chen2024diversity} \\
+Human rating sheet (4 items, 1--5) & This work (M6); reliability by~\cite{cronbach1951alpha,fornell1981evaluating,henseler2015htmt,hayes2007krippendorff} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Data collection}
+All generation and training ran on Google Colab GPUs (Section~\ref{sec:setup}). Generation and scoring write every
+finished poem to Google Drive immediately and resume from the last saved poem after a disconnection, so no poem is
+generated twice or lost. The released poems (E0) and the adapter were downloaded from the authors' Hugging Face
+repositories. The baseline's output folder is only read; all new runs write to a separate sibling folder.
+
+\subsection{Base versus extended study}
+Table~\ref{tab:base-ext} summarises what the base paper did and what this study adds.
+
+\begin{table}[t]
+\centering
+\caption{The base study (Shaer) and our extended study.}
+\label{tab:base-ext}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{1.45cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+Aspect & Base (Shaer~\cite{abbas2026shaer}) & Extended (this work) \\
+\midrule
+Meter measure & BiLSTM on the first bayt & Rule-based scansion of every hemistich, bayt pairs, form consistency \\
+Rhyme & Not measured & Raw\={\i}, majr\=a, ridf, ta'\={\i}s \\
+Length & Exact count, adherence & Same, plus even length inside strict validity \\
+Validity unit & Per metric, separately & Joint strict validity per poem \\
+Reproduction & Authors' own run & Independent E0--E3 \\
+Decoding & One sample & One sample, best-of-$N$, hemistich search (M4) \\
+Training data & Corpus & Rhyme in prompt, verifier-clean data, self-training (M5) \\
+Quality & LLM judge & Judge, diversity, copying, blinded human study (M6) \\
+Statistics & Point estimates & Bootstrap CIs, paired tests, logistic models, robustness \\
+\bottomrule
+\end{tabularx}
+\end{table}

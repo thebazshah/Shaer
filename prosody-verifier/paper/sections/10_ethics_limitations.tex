@@ -1,0 +1,42 @@
+\section{Ethics, Limitations and Threats to Validity}
+\label{sec:ethics}
+
+\subsection{Ethical considerations}
+\textbf{Data.} The study uses the public Ashaar corpus as released by the Shaer authors and the models released by
+their authors under their licences; the base model Yehia-7B was used with the permission of its authors. The corpus
+consists of classical poems and contains no personal data. Generated poems are always labelled as machine-generated in
+our outputs and are not presented as the work of any poet.
+
+\textbf{Human participants.} The measurement results in this paper involve no human participants. The planned human
+study of M6 will involve adult volunteers who read and rate poems. It will follow three principles. \emph{Informed
+consent}: every rater will read and sign the consent form in Appendix~\ref{app:consent} before taking part.
+\emph{Voluntary participation}: raters may stop at any time without giving a reason, and their partial ratings will be
+deleted on request. \emph{Anonymity}: ratings will be stored under a random rater code, no names or contact details
+will be stored with them, and only aggregate results will be published. The study will be submitted to the
+\pending{institutional ethics committee} before any data are collected.
+
+\textbf{Cultural care.} Classical Arabic poetry is a living cultural heritage. A tool that writes it at scale can
+devalue the work of poets if it is presented as a replacement. We present the generator as a drafting aid and the
+verifier as a teaching and checking tool.
+
+\subsection{Limitations and threats to validity}
+\textbf{Construct validity.} Strict validity depends on the verifier. Its rules were checked against textbooks and
+two open implementations, but not yet signed off by a prosodist (M2). On human poems it rejects some correct lines,
+mostly because of the margin rule on undiacritised text, so the human rates are lower bounds. We reduce this threat by
+reporting the margin-independent no-reading rate, varying the margin, using binding mode and using controls.
+
+\textbf{Internal validity.} The E1 and E3 gaps to the paper have several possible causes that we could not separate.
+The verifier was developed while looking at the released poems, which could bias it against them; the margin and the
+lexicon were therefore fixed on the evaluation and training splits only, and the controls show that it rejects broken
+human poems as well.
+
+\textbf{External validity.} The results cover one model family (Yehia-7B with QLoRA), one corpus and 13 of the 16
+meters. Generators with other tokenisers or larger models may behave differently, and rare meters have few test
+prompts.
+
+\textbf{Statistical conclusion validity.} All main comparisons are paired, use 3,481 prompts with 5,000-resample
+bootstrap intervals and have high power (Section~\ref{sec:power}). Each system was sampled once per prompt, so variation
+between generation runs is not captured by the intervals; E1 and E3 give a partial view of it.
+
+\textbf{Pending results.} H4--H8 are untested in this version. Their predictions were fixed before the runs so that the
+results cannot be fitted to them afterwards.

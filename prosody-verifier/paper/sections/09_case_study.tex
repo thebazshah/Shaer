@@ -1,0 +1,72 @@
+\section{Practical Implications and Case Study}
+\label{sec:case}
+
+\subsection{Practical implications}
+Three implications follow for anyone who builds or buys an Arabic poetry generator. First, \emph{a classifier score is
+not a quality gate}: a system that reports 95\% meter accuracy may deliver fewer than 10\% fully correct poems. Second,
+\emph{validity must be measured per poem and jointly}: meter, rhyme and length fail together and compound with length,
+so per-metric averages hide most failures. Third, \emph{a rule-based verifier is cheap to run and explains its
+verdicts}: it needs no GPU, it names the broken foot, and it can be placed in front of human editors so that their time
+goes to meaning rather than to scansion.
+
+\subsection{Case study: a textbook publisher}
+To make these points concrete we walk through an \emph{illustrative} scenario. The organisation is a composite, not a
+real company, and the numbers are taken from our measurements.
+
+\textbf{Setting.} An educational publisher prepares a secondary-school Arabic literature textbook. The prosody chapter
+needs 200 short original poems (two or three bayts each) in six common meters, on topics from the curriculum, for
+students to scan as exercises. A poem with a broken hemistich is worse than no poem: students would learn a wrong
+pattern, and teachers would lose trust in the book. The publisher has two editors who know prosody and a small budget
+of cloud GPU time.
+
+\textbf{Option A: the generator and its published metric.} The team generates one poem per request and keeps the poems
+that pass the base criterion. By our measurements on short poems, most requests produce a poem that passes, so the
+team quickly has 200 ``validated'' poems. But only \val{gEzeroStrictGivenBase}\% of poems that pass this criterion are
+strictly valid. The editors must therefore scan every poem by hand and will reject most of them, often for a rhyme
+fault that no metric flagged. The saving from automation disappears.
+
+\textbf{Option B: a verifier gate with resampling.} The team puts the verifier between the generator and the editors
+(Fig.~\ref{fig:case}). A poem reaches an editor only if it is strictly valid; otherwise the request is sampled again,
+up to a budget. For 1--3-bayt poems the released model is strictly valid \val{mEzeroLenA}\% of the time, so a valid poem
+needs about six samples on average if samples are independent (an optimistic assumption, since some prompts are harder
+than others). At the 2.4\,s per poem we measured for generation on an L4 GPU, 200 valid poems cost roughly
+$200 \times 6 \times 2.4\,\mathrm{s} \approx 48$ minutes of GPU time. The editors now review only meaning, tone and
+suitability for students. When a request exhausts its budget, the verifier's report (the hemistich, the nearest valid
+pattern and the broken foot) lets an editor repair the line by hand in minutes.
+
+\textbf{Option C: hemistich search (pending).} With the M4 search, the generator repairs each hemistich as it writes,
+so the predicted cost per valid poem is lower than in Option B, and poems of four or more bayts, for which Option B
+would need about 45 samples each, become feasible. The measured cost is \pending{pending M4}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  st/.style={draw=black!70, rounded corners=2pt, fill=#1, align=center, text width=1.75cm, minimum height=0.95cm, inner sep=2pt},
+  st/.default={blue!6},
+  dec/.style={draw=black!70, diamond, aspect=1.6, fill=yellow!12, align=center, inner sep=0.5pt, font=\scriptsize},
+  arr/.style={-{Stealth[length=2mm]}, thick, draw=black!70}]
+\node[st={gray!10}] (req) {Request: meter, length, topic, raw\={\i}};
+\node[st, right=0.35cm of req] (gen) {Generator (Shaer adapter)};
+\node[dec, right=0.35cm of gen] (ver) {Verifier\\ valid?};
+\node[st={green!8}, right=0.35cm of ver] (ed) {Editor: meaning, tone};
+\node[st={green!8}, below=0.6cm of ed] (book) {Textbook};
+\node[dec, below=0.7cm of gen] (bud) {Budget\\ left?};
+\node[st={orange!10}, left=0.35cm of bud] (fix) {Editor repairs from report};
+\draw[arr] (req) -- (gen);
+\draw[arr] (gen) -- (ver);
+\draw[arr] (ver) -- node[above, font=\scriptsize] {yes} (ed);
+\draw[arr] (ed) -- (book);
+\draw[arr] (ver) |- node[pos=0.25, right, font=\scriptsize] {no} (bud);
+\draw[arr] (bud) -- node[right, font=\scriptsize] {yes} (gen);
+\draw[arr] (bud) -- node[above, font=\scriptsize] {no} (fix);
+\draw[arr] (fix.south) |- ($(book.south west)+(0,0.2)$);
+\end{tikzpicture}
+\caption{Case-study scenario: the verifier as a quality gate between the generator and the human editors.}
+\label{fig:case}
+\end{figure}
+
+\textbf{Lessons.} The publisher's decision depends on the metric it trusts. Under the published metric the generator
+looks ready for use; under the strict criterion it is a useful drafting tool that needs a verifier in the loop. The
+gate also changes the editors' work from scanning lines to judging content, which is where human judgement is most
+valuable.

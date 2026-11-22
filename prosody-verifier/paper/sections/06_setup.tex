@@ -1,0 +1,116 @@
+\section{Data and Analysis Setup}
+\label{sec:setup}
+
+\subsection{Sample profile}
+Table~\ref{tab:profile} profiles the main sample. The 3,481 test prompts ask for 38,412 hemistichs in total. The meters
+follow the corpus: al-\d{T}aw\={\i}l, al-K\=amil and al-Bas\={\i}\d{t} make up 58\% of the prompts, and al-Hazaj and
+al-Mad\={\i}d fewer than 20 prompts each. Nearly half of the prompts ask for short poems of 1--3 bayts, and
+15\% ask for 11--20 bayts.
+
+\begin{table}[t]
+\centering
+\caption{Profile of the main sample (Shaer test split, 3,481 prompts).}
+\label{tab:profile}
+\footnotesize
+\begin{tabular}{@{}l r r@{\hspace{10pt}}l r r@{}}
+\toprule
+Meter & $n$ & \% & Meter & $n$ & \% \\
+\midrule
+al-\d{T}aw\={\i}l & 841 & 24.2 & al-Mutaq\=arib & 156 & 4.5 \\
+al-K\=amil & 649 & 18.6 & al-Ramal & 138 & 4.0 \\
+al-Bas\={\i}\d{t} & 529 & 15.2 & al-Rajaz & 137 & 3.9 \\
+al-W\=afir & 340 & 9.8 & al-Munsari\d{h} & 84 & 2.4 \\
+al-Khaf\={\i}f & 295 & 8.5 & al-Mujtathth & 61 & 1.8 \\
+al-Sar\={\i}\textquotesingle & 216 & 6.2 & al-Hazaj, al-Mad\={\i}d & 35 & 1.0 \\
+\midrule
+Form & $n$ & \% & Requested length & $n$ & \% \\
+\midrule
+t\=amm (full) & 3,327 & 95.6 & 1--3 bayts & 1,668 & 47.9 \\
+majz\=u\textquotesingle{} (shortened) & 124 & 3.6 & 4--6 bayts & 805 & 23.1 \\
+mukhalla\textquotesingle & 19 & 0.5 & 7--10 bayts & 473 & 13.6 \\
+a\d{h}adhdh & 11 & 0.3 & 11--20 bayts & 535 & 15.4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data screening}
+Before analysis every file was checked against the prompt list.
+(i) \emph{Completeness}: every system has exactly one poem per prompt. The scored file of E2 on Google Drive held only
+318 of 3,481 rows, because a re-scoring job had been interrupted; we re-scored E2 from its complete generation file.
+(ii) \emph{Consistency}: the summaries we recomputed from the scored files equal the summaries written on Google Drive
+for every run, to the last digit.
+(iii) \emph{Alignment}: hemistich counts and the bayts seen by the BiLSTM and by the verifier agree on every poem
+(0 misaligned bayts).
+(iv) \emph{Outliers}: empty or truncated poems are kept and count as invalid; nothing is removed, so all rates are over
+3,481 prompts.
+(v) \emph{Versions}: all verifier records carry the same verifier and lexicon hashes.
+
+\subsection{Hardware and software}
+All training and generation ran on Google Colab. Training used NVIDIA A100 (40\,GB) and L4 (24\,GB) GPUs across
+several sessions, resuming from checkpoints saved to Google Drive about every 10 minutes. E1 was generated on an A100
+in bf16 with batch size 32; E3 was generated on an L4 with batch size 9, which took 7,487\,s for 3,067 poems (the rest
+had been generated in an earlier session). The software stack was Python~3, PyTorch 2.3.1 (CUDA 12.1), Transformers
+4.43.0~\cite{wolf2020transformers}, PEFT 0.12.0~\cite{mangrulkar2022peft}, bitsandbytes 0.43.3, Accelerate 0.31.0 and
+Datasets 2.20.0. The verifier uses only the Python standard library. The statistics use NumPy 1.26.4 and SciPy 1.13.1,
+and the figures Matplotlib 3.9.2. All code, notebooks and analysis scripts are in the project
+repository\footnote{\url{https://github.com/thebazshah/Shaer/tree/dev/prosody-verifier}}.
+
+\subsection{Settings}
+Table~\ref{tab:settings} lists the settings. Training and decoding follow the base paper exactly; the verifier settings
+were fixed on the evaluation split before the test split was scored.
+
+\begin{table}[t]
+\centering
+\caption{Training, decoding, verifier and analysis settings.}
+\label{tab:settings}
+\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{2.7cm} X@{}}
+\toprule
+Setting & Value \\
+\midrule
+Base model & Yehia-7B-preview~\cite{yehia2025}, 4-bit NF4, bf16 compute \\
+LoRA & $r=64$, $\alpha=128$, dropout 0.05, rsLoRA \\
+Optimisation & LR $8\times10^{-5}$, 2 epochs, 4,236 steps, effective batch 16, max length 1,024, packing \\
+Loss & Completion-only (poem tokens) \\
+Checkpoint selection & Lowest evaluation loss, evaluated every 200 steps \\
+Decoding & $T=0.55$, top-$p=0.9$, top-$k$ off, repetition penalty 1.08, at most 768 new tokens, seed 42 \\
+\midrule
+Verifier & margin $\delta=1.5$, cost cap $C_{\max}=6.0$, letters mode (binding mode as a check) \\
+Lexicon & counted on the training split only (two rounds) \\
+\midrule
+Bootstrap & 5,000 resamples of prompts, percentile intervals, seed 7 \\
+Significance & $\alpha = 0.05$, two-sided; Holm correction~\cite{holm1979simple} within each family of tests \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Evaluation criteria}
+The criteria are the four Shaer metrics, the base criterion \eqref{eq:base}, bayt validity, rhyme validity and strict
+validity \eqref{eq:strict}, the no-reading rate and the agreement $\kappa$ \eqref{eq:kappa}. For the human study,
+internal consistency is Cronbach's alpha~\cite{cronbach1951alpha} over the $K=4$ items,
+\begin{equation}
+\alpha_C = \frac{K}{K-1}\Big(1 - \frac{\sum_{i}\sigma^2_i}{\sigma^2_{\text{total}}}\Big),
+\label{eq:alpha}
+\end{equation}
+and composite reliability and average variance extracted are computed from standardised loadings $\lambda_i$ of a
+one-factor model~\cite{fornell1981evaluating}:
+\begin{equation}
+\mathrm{CR} = \frac{(\sum_i \lambda_i)^2}{(\sum_i \lambda_i)^2 + \sum_i (1-\lambda_i^2)}, \qquad
+\mathrm{AVE} = \frac{1}{K}\sum_i \lambda_i^2 .
+\label{eq:crave}
+\end{equation}
+Discriminant validity between the human ratings and the judge scores uses the heterotrait--monotrait ratio
+(HTMT)~\cite{henseler2015htmt}, the mean correlation between items of different constructs divided by the geometric mean
+of the mean correlations within each construct, with 0.85 as the threshold. Agreement between raters uses
+Krippendorff's alpha~\cite{hayes2007krippendorff}. The thresholds are $\alpha_C \ge 0.70$, $\mathrm{CR} \ge 0.70$ and
+$\mathrm{AVE} \ge 0.50$.
+
+\subsection{Power analysis}
+\label{sec:power}
+The main comparisons are paired proportions, so we computed power for McNemar's test with the method of
+Connor~\cite{connor1987sample}, the same procedure that G*Power~\cite{faul2007gpower} uses for this test. With
+$\alpha=0.05$ two-sided and power 0.80, detecting a difference of 10 points when 20\% of pairs are discordant needs
+\val{powNTen} prompts, and a difference of 5 points needs \val{powNFive} prompts with 10\% discordant pairs or
+\val{powNFiveWide} with 20\%. The M4 development set of 400 prompts therefore has power \val{powDev} for a 10-point
+difference, and the full test set of 3,481 prompts detects a difference of \val{powMDE} points with 10\% discordant
+pairs. Every comparison in this paper is run on at least 400 paired prompts, and the main ones on all 3,481.
