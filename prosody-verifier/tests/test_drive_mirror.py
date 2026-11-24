@@ -240,3 +240,16 @@ def test_notebook_steps_end_to_end_with_real_scripts(pvc, monkeypatch):
     assert on_vm and on_vm == on_drive
     for rel in on_vm:
         assert (pvc.root / "m6" / rel).read_bytes() == (pvc.drive_root / "m6" / rel).read_bytes(), rel
+
+
+def test_a_stuck_script_is_restarted_instead_of_ending_the_cell(monkeypatch, capsys):
+    monkeypatch.setattr(pv.time, "sleep", lambda s: None)
+    calls = []
+
+    def start():
+        calls.append(1)
+        if len(calls) < 3:
+            raise sc.StepStalled("M3 e1 was silent and idle for 15:00")
+        return 0
+    assert pv._resuming(start, "M3 e1") == 0 and len(calls) == 3
+    assert "restarting M3 e1 automatically" in capsys.readouterr().out

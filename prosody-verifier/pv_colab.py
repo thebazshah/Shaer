@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.1.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.1.1"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-24 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -98,7 +98,26 @@ class PVConfig:
         """A watched subprocess in the isolated environment (progress, heartbeat, stall detection). The stop button stops
         the script too, so nothing keeps writing after the final upload of the phase."""
         kw.setdefault("stop_on_interrupt", True)
-        sc.run([self.py, *args], label=label, env=self.sc_cfg.env(), stall_after=self.sc_cfg.stall_seconds, **kw)
+        _resuming(lambda: sc.run([self.py, *args], label=label, env=self.sc_cfg.env(), stall_after=self.sc_cfg.stall_seconds, **kw),
+                  label)
+
+
+MAX_STALL_RESTARTS = 20                  # a stuck script is restarted this many times in a row before the step gives up
+
+
+def _resuming(start, label: str):
+    """Run `start()` (a watched subprocess); when it hangs (Colab sometimes does) the watcher has stopped it, so start it
+    again: every script continues from the files it already wrote. The cell keeps running and keeps using the runtime,
+    instead of ending with an error while the runtime still burns compute units."""
+    for attempt in range(MAX_STALL_RESTARTS + 1):
+        try:
+            return start()
+        except sc.StepStalled as exc:
+            if attempt >= MAX_STALL_RESTARTS:
+                raise
+            print(f"⚠ {exc}\n  restarting {label} automatically, it continues from what is saved "
+                  f"(restart {attempt + 1}/{MAX_STALL_RESTARTS}) ...", flush=True)
+            time.sleep(10)
 
 
 # ---------------------------------------------------------------------------------------------- never write into the baseline
@@ -1207,8 +1226,9 @@ def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bo
             cmd.append("--dry-run")
         if max_cost_usd:
             cmd += ["--max-cost-usd", str(max_cost_usd)]
-        code = sc.run([pv.py, "-u", *cmd], label=f"M6 judge {p.stem}", cwd=pv.repo, env=pv.sc_cfg.env(), check=False,
-                      drop=(), stall_after=pv.sc_cfg.stall_seconds, stop_on_interrupt=True)
+        code = _resuming(lambda: sc.run([pv.py, "-u", *cmd], label=f"M6 judge {p.stem}", cwd=pv.repo, env=pv.sc_cfg.env(),
+                                        check=False, drop=(), stall_after=pv.sc_cfg.stall_seconds, stop_on_interrupt=True),
+                         f"M6 judge {p.stem}")
         if code == 4:
             print(f"■ {p.stem}: stopped at the cost limit; run again with a higher max_cost_usd to continue")
         elif code not in (0,):
