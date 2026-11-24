@@ -79,7 +79,12 @@ refused.
   bumps `NOTEBOOK_VERSION` at the top of `prosody_main.ipynb` (its title cell and configuration cell) and
   `NOTEBOOK_REQUIRED`. Section 2 of the notebook prints both and warns when the notebook copy is too old.
 * Long steps show progress and a heartbeat, and a silent idle step is stopped with resume instructions.
-* Generation and scoring runs write each finished row to Drive and resume from it.
+* Generation and scoring runs write each finished row and resume from it. On Colab every step (M0-M6) works on the VM's
+  disk (`pvc.root` = `/content/pv_local/shaer-prosody`) and `pv_colab._phase` mirrors it to `MyDrive/shaer-prosody`
+  (`pvc.drive_root`): it copies back what a step reads, uploads changed files through the Drive API with an MD5 check
+  (JSONL up to the last complete line) about every minute and at the end or on a stop, mirrors removals and renames, and
+  falls back to the mount plus a Drive flush without the API. `pv.sync_to_drive(pvc)` repeats an interrupted final upload.
+  Tests: `tests/test_drive_mirror.py`.
 * Training runs (M5) save a resume checkpoint about every 10 minutes of wall-clock time (`save_minutes=10`), time-based
   rather than a fixed step count, so it adapts to the GPU. They use the baseline's runner, which keeps two checkpoints on
   Drive (the latest and the best); keeping the two latest plus the best would need a change to the baseline's module. Reference

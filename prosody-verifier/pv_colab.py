@@ -18,22 +18,32 @@ Drive folders. What is new lives in this folder and writes to its own Drive fold
 
 Baseline outputs are only read, from where the baseline notebook wrote them (MyDrive/shaer-repro-yehia/runs/...).
 
-Checkpoint policy for later training runs (none in M0 or idea 1): save about every 10 minutes of wall-clock time, keep the
-two most recent checkpoints plus the best one.
+Saving to Drive (every phase, M0-M6). On Colab the scripts write to a mirror of that folder on the VM's own disk
+(/content/pv_local/shaer-prosody = pvc.root), never through the Drive mount, whose background upload can fall far behind
+(a re-run then resumed from an older point than the log had shown). A phase first copies the files it reads and resumes
+from back from Drive (when the VM does not have them, e.g. in a new session); while it runs, a background thread uploads
+every changed file to MyDrive/shaer-prosody (= pvc.drive_root) through the Drive API and checks its MD5 with Drive's copy
+(JSONL files up to their last complete line), about every minute; when the phase finishes or is stopped, a final verified
+upload runs before anything else (and the stop then halts Run all). Training runs (M5) use the baseline's own mechanism
+(sc.start_training: checkpoints on the VM's disk, verified upload, restore on a new session).
 """
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
+import threading
+import time
 
 import shaer_colab as sc
 
-__version__ = "1.0.0"                    # bump on every change of the prosody code (and the notebook's version with it)
-__updated__ = "2026-11-22 UTC"
+__version__ = "1.1.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__updated__ = "2026-11-24 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -50,8 +60,23 @@ class PVConfig:
     drive_base: str
 
     @property
-    def root(self) -> pathlib.Path:
+    def drive_root(self) -> pathlib.Path:
+        """This notebook's folder on Google Drive (MyDrive/shaer-prosody)."""
         return pathlib.Path(self.drive_base, DRIVE_FOLDER)
+
+    @property
+    def mirrored(self) -> bool:
+        """On Colab (Drive under /content/drive) the work happens in a mirror on the VM's disk; PV_MIRROR=0 turns it off,
+        PV_MIRROR=1 forces it (tests)."""
+        flag = os.environ.get("PV_MIRROR", "")
+        return flag == "1" or (flag != "0" and str(self.drive_base).startswith("/content/drive"))
+
+    @property
+    def root(self) -> pathlib.Path:
+        """Where every phase reads and writes: the VM-disk mirror when mirrored (kept in sync with drive_root), else Drive."""
+        if self.mirrored:
+            return pathlib.Path(os.environ.get("PV_LOCAL_ROOT", "/content/pv_local"), DRIVE_FOLDER)
+        return self.drive_root
 
     @property
     def m0(self) -> pathlib.Path:
@@ -70,7 +95,9 @@ class PVConfig:
         return pathlib.Path(self.sc_cfg.repo_dir)
 
     def run(self, args: list, label: str, **kw) -> None:
-        """A watched subprocess in the isolated environment (progress, heartbeat, stall detection)."""
+        """A watched subprocess in the isolated environment (progress, heartbeat, stall detection). The stop button stops
+        the script too, so nothing keeps writing after the final upload of the phase."""
+        kw.setdefault("stop_on_interrupt", True)
         sc.run([self.py, *args], label=label, env=self.sc_cfg.env(), stall_after=self.sc_cfg.stall_seconds, **kw)
 
 
@@ -129,6 +156,286 @@ def training_config(pv: "PVConfig", run_name: str) -> "sc.Config":
     sc.sync_repo(cfg)                    # the repository's sft/outputs and runs/ links now point at the sibling
     print(f"training run {run_name!r}: checkpoints -> {cfg.run_dir}")
     return cfg
+
+
+# ---------------------------------------------------------------------------------------------- saving to Drive (all phases)
+SYNC_EVERY = 60                     # seconds between upload rounds while a phase runs
+_SKIP_SUFFIXES = (".uploading", ".partial", ".tmp")
+
+
+def _drive_api():
+    """One authenticated Drive API client per session (Google's consent prompt appears once); without it, the mirror is
+    copied through the Drive mount and Drive is flushed at the end of each phase (sc._LocalFolderAPI)."""
+    global _API
+    if "_API" not in globals():
+        try:
+            _API = sc._DriveAPI()
+            print("  Drive: results are uploaded through the Drive API and verified (MD5)")
+        except Exception as exc:
+            _API = sc._LocalFolderAPI()
+            print(f"  ⚠ Drive API not available ({exc.__class__.__name__}: {str(exc)[:200]}): copying through the Drive "
+                  "mount instead, then flushing Drive at the end of each step (not verified). For the verified upload run "
+                  "from google.colab import auth; auth.authenticate_user()  and approve Google's prompt.")
+    return _API
+
+
+_API_FACTORY = _drive_api           # tests replace it
+_ON_DRIVE: dict[str, dict] = {}     # drive_root -> {relative path: (size, mtime_ns) of the VM file whose content Drive has}
+
+
+class _Mirror:
+    """Keeps pvc.drive_root on Drive in step with pvc.root on the VM's disk, for the folders and files a phase uses."""
+
+    def __init__(self, pv: "PVConfig", api) -> None:
+        self.pv, self.api = pv, api
+        self.local, self.drive = pv.root, pv.drive_root
+        self.scopes: list[str] = []
+        self.known = _ON_DRIVE.setdefault(str(self.drive), {})   # kept for the whole session, across steps
+        self.last_upload: dict[str, float] = {}
+        self.folder_ids: dict[str, str] = {}
+        self.listing: dict[str, dict] = {}          # relative folder -> {name: Drive entry}
+        self.snap = self.local.parent / ".pv_upload_snapshots"
+        self.lock, self.stop_event = threading.Lock(), threading.Event()
+        self.thread: threading.Thread | None = None
+        self.uploaded = 0
+        self.errors = 0
+
+    # -- which part of the tree this phase uses; copy it back from Drive where the VM does not have it
+    def add_scopes(self, scopes) -> None:
+        with self.lock:
+            for rel in scopes:
+                rel = str(pathlib.PurePosixPath(rel))
+                if rel in self.scopes:
+                    continue
+                self.scopes.append(rel)
+                self._restore(rel)
+
+    def _restore(self, rel: str) -> None:
+        src = self.drive / rel
+        if not src.exists():
+            return
+        files = [src] if src.is_file() else [f for f in src.rglob("*") if f.is_file() and not f.name.endswith(_SKIP_SUFFIXES)]
+        copied, size, t0 = 0, 0, time.time()
+        for f in files:
+            r = f.relative_to(self.drive).as_posix()
+            dst = self.local / r
+            if dst.exists():                         # the VM's copy is the newer one (everything is written here);
+                continue                             # it is uploaded unless Drive already has exactly it
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dst)
+            self.known[r] = self._sig(dst)
+            copied, size = copied + 1, size + dst.stat().st_size
+        if copied:
+            print(f"  Drive → VM: {rel}: {copied} file(s), {size / 2**20:.1f} MB in {sc._fmt(time.time() - t0)}", flush=True)
+
+    @staticmethod
+    def _sig(path: pathlib.Path) -> tuple:
+        st = path.stat()
+        return (st.st_size, st.st_mtime_ns)
+
+    # -- Drive side
+    def _folder(self, rel_dir: str) -> str:
+        if rel_dir in self.folder_ids:
+            return self.folder_ids[rel_dir]
+        if hasattr(self.api, "folder_for"):          # through the mount (and tests): the path itself
+            fid = self.api.folder_for(self.drive / rel_dir if rel_dir != "." else self.drive)
+        elif rel_dir == ".":
+            base = pathlib.Path(self.drive)
+            rel = base.relative_to("/content/drive/MyDrive")      # the Drive API addresses folders from My Drive
+            fid = "root"
+            for part in rel.parts:
+                match = [f for f in self.api.children(fid) if f["name"] == part and f["mimeType"] == sc._FOLDER]
+                fid = match[0]["id"] if match else self.api.create_folder(fid, part)
+        else:
+            parent_rel = pathlib.PurePosixPath(rel_dir).parent.as_posix()
+            parent = self._folder(parent_rel)
+            name = pathlib.PurePosixPath(rel_dir).name
+            entry = self._entries(parent_rel, parent).get(name)
+            fid = entry["id"] if entry and entry["mimeType"] == sc._FOLDER else self.api.create_folder(parent, name)
+        self.folder_ids[rel_dir] = fid
+        return fid
+
+    def _entries(self, rel_dir: str, fid: str, refresh: bool = False) -> dict:
+        if refresh or rel_dir not in self.listing:
+            self.listing[rel_dir] = {f["name"]: f for f in self.api.children(fid)}
+        return self.listing[rel_dir]
+
+    def _upload(self, rel: str, final: bool) -> bool:
+        path = self.local / rel
+        sig = self._sig(path)
+        if self.known.get(rel) == sig:
+            return False
+        now = time.time()
+        if not final:
+            if now - sig[1] / 1e9 < 2:                   # still being written
+                return False
+            if now - self.last_upload.get(rel, 0) < SYNC_EVERY * max(1, sig[0] // (64 * 2**20)):
+                return False                         # large, growing files: not every round
+        snap = self.snap / rel
+        snap.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix == ".jsonl":                  # only complete lines: Drive never holds a half-written row
+            with open(path, "rb") as f:
+                data = f.read()
+            snap.write_bytes(data[: data.rfind(b"\n") + 1])
+        else:
+            shutil.copyfile(path, snap)
+        rel_dir = pathlib.PurePosixPath(rel).parent.as_posix()
+        parent = self._folder(rel_dir)
+        name = pathlib.PurePosixPath(rel).name
+        entry = None if hasattr(self.api, "folder_for") else self._entries(rel_dir, parent).get(name)
+        want = sc._md5(snap)
+        if entry and str(entry.get("md5Checksum", "")) == want:  # Drive has exactly this already (e.g. a restarted kernel)
+            snap.unlink(missing_ok=True)
+            self.known[rel], self.last_upload[rel] = sig, now
+            return False
+        resp = self.api.upload(parent, name, snap, file_id=entry["id"] if entry else None)
+        if str(resp.get("md5Checksum", "")) != want or int(resp.get("size", -1)) != snap.stat().st_size:
+            raise RuntimeError(f"{rel}: Drive's copy does not match (size {resp.get('size')} vs {snap.stat().st_size})")
+        if not entry and not hasattr(self.api, "folder_for"):
+            self._entries(rel_dir, parent)[name] = {"id": resp["id"], "name": name, "mimeType": "application/octet-stream"}
+        snap.unlink(missing_ok=True)
+        self.known[rel], self.last_upload[rel] = sig, now
+        self.uploaded += 1
+        return True
+
+    def _trash(self, rel: str) -> None:
+        rel_dir = pathlib.PurePosixPath(rel).parent.as_posix()
+        name = pathlib.PurePosixPath(rel).name
+        if hasattr(self.api, "folder_for"):
+            target = self.drive / rel
+            if target.exists():
+                self.api.trash(str(target))
+        else:
+            entry = self._entries(rel_dir, self._folder(rel_dir), refresh=True).get(name)
+            if entry:
+                self.api.trash(entry["id"])
+                self.listing[rel_dir].pop(name, None)
+        self.known.pop(rel, None)
+
+    def sync_once(self, final: bool = False) -> int:
+        with self.lock:
+            n = 0
+            present = set()
+            for rel in self.scopes:
+                base = self.local / rel
+                files = [base] if base.is_file() else (
+                    [f for f in base.rglob("*") if f.is_file() and not f.is_symlink()] if base.is_dir() else [])
+                for f in files:
+                    if f.name.endswith(_SKIP_SUFFIXES):
+                        continue
+                    r = f.relative_to(self.local).as_posix()
+                    present.add(r)
+                    try:
+                        n += self._upload(r, final)
+                    except FileNotFoundError:        # renamed or removed while being copied: picked up next round
+                        continue
+            for r in [r for r in self.known if r not in present and any(r == s or r.startswith(s + "/") for s in self.scopes)]:
+                self._trash(r)                       # removed or renamed on the VM (e.g. a .stale file set aside)
+            return n
+
+    # -- the background loop
+    def start(self) -> None:
+        def loop():
+            while not self.stop_event.wait(SYNC_EVERY):
+                try:
+                    self.sync_once()
+                    self.errors = 0
+                except Exception as exc:
+                    self.errors += 1
+                    print(f"  ⚠ Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]}); retrying in {SYNC_EVERY} s",
+                          flush=True)
+        self.thread = threading.Thread(target=loop, daemon=True)
+        self.thread.start()
+
+    def finish(self) -> bool:
+        """Stop the loop and upload everything that changed, verified; through the mount (then flush) if the API fails."""
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=5)
+        for attempt in range(3):
+            try:
+                n = self.sync_once(final=True)
+                break
+            except Exception as exc:
+                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})", flush=True)
+                if attempt < 2:
+                    time.sleep(10)
+        else:
+            if isinstance(self.api, sc._LocalFolderAPI):
+                print(f"  ✖ NOT EVERYTHING IS ON DRIVE: the newest results are on this VM ({self.local}). Do not end the "
+                      "session: run the cell again, or pv.sync_to_drive(pvc).", flush=True)
+                return False
+            print("  copying through the Drive mount instead ...", flush=True)
+            self.api, self.folder_ids, self.listing = sc._LocalFolderAPI(), {}, {}
+            self.known.clear()                       # not known to be on Drive any more: copy everything in scope
+            return self.finish()
+        if isinstance(self.api, sc._LocalFolderAPI):
+            sc.flush_drive()                         # the mount uploads lazily: wait until it has
+        print(f"  ☁ Drive: everything this step wrote is on Drive ({self.uploaded} upload(s), the last {n})", flush=True)
+        return True
+
+
+_ACTIVE: _Mirror | None = None
+
+
+def _phase(*scopes: str):
+    """Run a notebook step inside the Drive mirror: copy `scopes` (paths under pvc.root) from Drive to the VM where it
+    lacks them, upload what changes in the background, and on the way out (finished, failed or stopped) upload the rest,
+    verified. A stop then still propagates, so Runtime > Run all halts at the stopped cell."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(pv: "PVConfig", *args, **kwargs):
+            global _ACTIVE
+            if not pv.mirrored:
+                return fn(pv, *args, **kwargs)
+            sc._require_drive(pv.drive_root)
+            if _ACTIVE is not None:                  # a step called by another step: same mirror, more scopes
+                _ACTIVE.add_scopes(scopes)
+                return fn(pv, *args, **kwargs)
+            mirror = _Mirror(pv, _API_FACTORY())
+            mirror.add_scopes(scopes)
+            mirror.start()
+            _ACTIVE = mirror
+            stopped = False
+            try:
+                return fn(pv, *args, **kwargs)
+            except KeyboardInterrupt:
+                stopped = True
+                print("■ stopped: uploading what this step wrote to Drive before anything else ...", flush=True)
+                raise
+            finally:
+                _ACTIVE = None
+                ok = mirror.finish()
+                if stopped:
+                    print("■ " + ("everything it wrote is on Drive" if ok else "NOT everything is on Drive (see above)")
+                          + ". Run all stops here; run the cell again to resume.", flush=True)
+        return wrapper
+    return deco
+
+
+def _need(pv: "PVConfig", path) -> pathlib.Path:
+    """A path a step reads (e.g. a training set recorded in variants.json): on this VM when mirrored (copied from Drive if
+    missing), and the same path whether it was recorded on Drive or on the VM."""
+    path = pathlib.Path(path)
+    for base in (pv.drive_root, pv.root):
+        if _inside(path, base) and path != base:
+            rel = pathlib.Path(os.path.abspath(path)).relative_to(os.path.abspath(base)).as_posix()
+            if pv.mirrored and _ACTIVE is not None:
+                _ACTIVE.add_scopes([rel])
+            local = pv.root / rel
+            return local if local.exists() or pv.mirrored else pv.drive_root / rel
+    return path
+
+
+def sync_to_drive(pv: "PVConfig", scope: str = ".") -> None:
+    """Upload everything under pvc.root (or one sub-folder) that Drive does not have yet, verified. Normally not needed:
+    every step does it by itself; this is for an interrupted final upload."""
+    if not pv.mirrored:
+        print("results are written to Drive directly (no mirror on this machine)")
+        return
+    mirror = _Mirror(pv, _API_FACTORY())
+    mirror.scopes = [scope]
+    mirror.finish()
 
 
 def check_version(notebook_version: str) -> None:
@@ -226,6 +533,7 @@ def _released_scored(pv: PVConfig, runs: dict[str, pathlib.Path]) -> pathlib.Pat
     return _score(pv, gens, src / "scored.jsonl", "scoring the released Shaer poems")
 
 
+@_phase('m0')
 def run_m0(pv: PVConfig) -> None:
     """M0 headroom audit over every complete baseline run on Drive plus the human reference poems."""
     _need_env(pv)
@@ -246,6 +554,7 @@ def run_m0(pv: PVConfig) -> None:
     sc._finish(t0, f"M0 (tables in {pv.m0 / 'm0_report.md'})")
 
 
+@_phase('m0')
 def show_m0(pv: PVConfig) -> None:
     """Show the combined M0 table (rendered as Markdown in Colab)."""
     report = pv.m0 / "m0_report.md"
@@ -260,6 +569,7 @@ def show_m0(pv: PVConfig) -> None:
         print(text)
 
 
+@_phase('m0')
 def m0_summary(pv: PVConfig) -> dict:
     """The combined M0 summary as a dict (one entry per system)."""
     return json.loads((pv.m0 / "m0_summary.json").read_text(encoding="utf-8"))
@@ -281,6 +591,7 @@ def m1_tests(pv: PVConfig) -> None:
     pv.run(["-m", "pytest", HERE / "tests", "-q", "-p", "no:cacheprovider"], label="M1 tests")
 
 
+@_phase('m1/splits')
 def m1_prepare_splits(pv: PVConfig) -> pathlib.Path:
     """Download the Shaer train / eval / test splits as small JSONL files on Drive (skipped when present)."""
     _need_env(pv)
@@ -292,6 +603,7 @@ def m1_prepare_splits(pv: PVConfig) -> pathlib.Path:
     return out
 
 
+@_phase('m1')
 def m1_lexicon(pv: PVConfig, rebuild: bool = False, workers: int = 0) -> pathlib.Path:
     """The pronunciation lexicon: the one shipped in the repository, or (rebuild=True) a new one built from the train
     split on Drive (about 15 minutes on 4 CPU cores, longer on a 2-core Colab CPU runtime)."""
@@ -307,6 +619,7 @@ def m1_lexicon(pv: PVConfig, rebuild: bool = False, workers: int = 0) -> pathlib
     return out
 
 
+@_phase('m1')
 def m1_validate(pv: PVConfig, split: str = "eval", limit: int = 1000, lexicon: pathlib.Path | None = None) -> pathlib.Path:
     """Validate the verifier on human poems of a split and on broken copies of them (limit=0: the whole split)."""
     _need_env(pv)
@@ -319,6 +632,7 @@ def m1_validate(pv: PVConfig, split: str = "eval", limit: int = 1000, lexicon: p
     return out
 
 
+@_phase('m0', 'm1')
 def m1_compare_bilstm(pv: PVConfig, limit: int = 1000, lexicon: pathlib.Path | None = None) -> None:
     """Bayt-by-bayt agreement with the BiLSTM classifier on the released Shaer poems and on the human reference poems,
     with written diacritics binding and ignored. Needs M0 (it reuses M0's scored files)."""
@@ -338,6 +652,7 @@ def m1_compare_bilstm(pv: PVConfig, limit: int = 1000, lexicon: pathlib.Path | N
     sc._finish(t0, "BiLSTM agreement")
 
 
+@_phase('m1')
 def m1_report(pv: PVConfig) -> str:
     """Combine the M1 results on Drive into one Markdown table (also written to m1/m1_report.md)."""
     d = m1_dir(pv)
@@ -409,6 +724,7 @@ def m3_systems(pv: PVConfig) -> dict[str, pathlib.Path]:
     return {"reference": ref, "e0_released_shaer": e0, **runs}
 
 
+@_phase('m0', 'm3')
 def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding"), controls: bool = True,
                workers: int = 0) -> None:
     """Re-score every system with the verifier (both reading modes), then the two controls built from the reference
@@ -436,6 +752,7 @@ def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding
     sc._finish(t0, f"M3 re-scoring -> {out}")
 
 
+@_phase('m3')
 def m3_report(pv: PVConfig, reps: int = 1000) -> str:
     """Summarise every re-scored system (Shaer's own metrics next to the strict ones, with bootstrap intervals,
     margins, breakdowns, controls and integrity checks): m3/m3_summary.json and m3/m3_report.md on Drive."""
@@ -481,6 +798,7 @@ def _need_gpu(what: str) -> None:
         raise RuntimeError(f"{what} needs a GPU runtime (A100 preferred, L4 works): Runtime > Change runtime type")
 
 
+@_phase('m4')
 def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samples: int = 1, k: int = 4,
                 rounds: int = 1, batch_size: str = "auto", extra: list | None = None, folder: str = "") -> pathlib.Path:
     """One M4 generation run with the released Shaer adapter on Yehia-7B-preview (resumable: finished poems are on Drive)."""
@@ -499,6 +817,7 @@ def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samp
     return out
 
 
+@_phase('m4/eval')
 def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMPLES, search=M4_DEV_SEARCH,
            only: tuple | None = None) -> None:
     """The development sweep on the eval split: one sample run (I0 and best-of-2 ... best-of-`samples`) and the search
@@ -516,6 +835,7 @@ def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMP
     sc._finish(t0, "M4 development sweep")
 
 
+@_phase('m4/test')
 def m4_test(pv: PVConfig, k: int, rounds: int, samples: int) -> None:
     """The final runs on the full test split (3,481 prompts): the chosen search configuration and best-of-`samples`.
     Choose them on the development sweep first (m4_report(pvc, "eval") prints the choice its rule makes)."""
@@ -523,6 +843,7 @@ def m4_test(pv: PVConfig, k: int, rounds: int, samples: int) -> None:
     m4_generate(pv, "test", f"i1_n{samples}", num_samples=samples)
 
 
+@_phase('m4/eval')
 def m4_selfcheck(pv: PVConfig, prompts: int = 8) -> dict:
     """Before the long runs (a few minutes on the GPU): on the real model with the adapter, the shared-cache logits against
     a full forward pass, and greedy decoding one hemistich at a time against one-shot greedy decoding (they must agree;
@@ -539,6 +860,7 @@ def m4_selfcheck(pv: PVConfig, prompts: int = 8) -> dict:
     return res
 
 
+@_phase('m4/samplecheck')
 def m4_check_sampling(pv: PVConfig, subset: int = 300) -> None:
     """Optional: the sample mode of m4_decode.py is the paper's decoding. One sample on a seeded subset of test prompts,
     compared with the baseline's E1 poems (generate_shaer_test.py) on the same prompts: the official metrics must agree
@@ -554,6 +876,7 @@ def m4_check_sampling(pv: PVConfig, subset: int = 300) -> None:
            label="sample mode vs E1", quiet=False)
 
 
+@_phase('m4')
 def m4_test_from_choice(pv: PVConfig) -> None:
     """The final test runs chosen by the pre-registered rule on the development sweep (m4/eval/m4_summary.json)."""
     p = m4_dir(pv, "eval") / "m4_summary.json"
@@ -584,6 +907,7 @@ def _score_runs(pv: PVConfig, d: pathlib.Path, label: str, workers: int = 0) -> 
                label=f"{label} verifier {run.name}")
 
 
+@_phase('m4')
 def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
     """Score every M4 run of a split: the repository's scorer (BiLSTM meter, line count; CPU) and the M3 verifier in both
     reading modes. A CPU runtime is enough (and cheaper); finished rows are kept, so it can run while generation goes on."""
@@ -591,6 +915,7 @@ def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
     _score_runs(pv, m4_dir(pv, split), "M4", workers)
 
 
+@_phase('m4', 'm1/splits/train.jsonl')
 def m4_report(pv: PVConfig, split: str, reps: int = 1000) -> str:
     """Summarise the M4 runs of a split (m4/<split>/m4_report.md and m4_summary.json on Drive)."""
     _need_env(pv)
@@ -659,9 +984,12 @@ def _variant(pv: PVConfig, variant: str) -> dict:
     v = _variants(pv).get(variant)
     if not v:
         raise RuntimeError(f"no M5 variant {variant!r} yet: build it first (pv.m5_build(pvc, {variant!r}))")
+    if v.get("data"):                    # recorded on Drive or on the VM in an earlier session: the copy this step can use
+        v = {**v, "data": str(_need(pv, v["data"]))}
     return v
 
 
+@_phase('m5/labels', 'm5/variants.json')
 def m5_relabel(pv: PVConfig, workers: int = 0) -> pathlib.Path:
     """The verifier's labels of every poem of the corpus (CPU; about 1-2 h with 12 CPUs, longer on a 2-CPU runtime;
     resumable). Labels made by another verifier or lexicon are set aside and made again."""
@@ -674,6 +1002,7 @@ def m5_relabel(pv: PVConfig, workers: int = 0) -> pathlib.Path:
     return out
 
 
+@_phase('m5/labels', 'm5/data', 'm5/variants.json')
 def m5_build(pv: PVConfig, variant: str, base: str = "", accepted: pathlib.Path | None = None, mix: float = 1.0) -> pathlib.Path:
     """Build a training set: "2a" (the rawī in every prompt), "2b" (2a on verifier-clean poems), or a 2c round (use
     m5_selftrain, which calls this). Returns its folder; a set already built from the same inputs is reused."""
@@ -693,6 +1022,7 @@ def m5_build(pv: PVConfig, variant: str, base: str = "", accepted: pathlib.Path 
     return data
 
 
+@_phase('m5/variants.json')
 def m5_train(pv: PVConfig, variant: str, epochs: float | None = None, init_from: pathlib.Path | str | None = None,
              gradient_checkpointing: bool = False, save_minutes: float = 10, eval_batch_size="auto") -> None:
     """Fine-tune a variant with the baseline's training recipe and runner (sc.start_training: QLoRA on Yehia-7B-preview,
@@ -719,6 +1049,7 @@ def m5_train(pv: PVConfig, variant: str, epochs: float | None = None, init_from:
                       eval_batch_size=eval_batch_size)
 
 
+@_phase('m5/variants.json')
 def m5_best_checkpoint(pv: PVConfig, variant: str) -> pathlib.Path:
     """The best checkpoint (lowest eval loss) of a finished M5 training run."""
     v = _variant(pv, variant)
@@ -733,6 +1064,7 @@ def m5_best_checkpoint(pv: PVConfig, variant: str) -> pathlib.Path:
     raise RuntimeError(f"M5 {variant}: the best checkpoint {best!r} is not in {run_dir}")
 
 
+@_phase('m5/variants.json')
 def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0) -> pathlib.Path:
     """One sample per prompt for a system: a trained variant ("2a", "2b", "2c_r1", ...: its best checkpoint, prompts with
     the rawī) or "grpo_v2" (the authors' best GRPO adapter, the paper's prompts). GPU; resumable."""
@@ -743,6 +1075,7 @@ def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0)
     else:
         name, data = f"m5_{system}", _variant(pv, system)["data"]
         adapter = ["--adapter-path", m5_best_checkpoint(pv, system)]
+    _need(pv, m5_dir(pv) / split)                # resume from the poems already on Drive
     out = m5_dir(pv) / split / "runs" / name / "generations.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     pv.run([HERE / "m4_decode.py", "sample", "--split", split, "--subset", str(subset), "--num-samples", "1", "--out", out,
@@ -750,6 +1083,7 @@ def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0)
     return out
 
 
+@_phase('m5/test')
 def m5_import_baselines(pv: PVConfig) -> list[str]:
     """Copy the baseline's finished E1 (released adapter) and E3 (re-trained) test poems into m5/test/runs, read only
     from the baseline's folder, so M5 compares against them on the same prompts without generating them again."""
@@ -769,12 +1103,14 @@ def m5_import_baselines(pv: PVConfig) -> list[str]:
     return done
 
 
+@_phase()
 def m5_score(pv: PVConfig, split: str = "test", workers: int = 0) -> None:
     """Score the M5 runs like M4's: the repository's scorer and the verifier (both modes). CPU is enough."""
     _need_env(pv)
-    _score_runs(pv, m5_dir(pv) / split, "M5", workers)
+    _score_runs(pv, _need(pv, m5_dir(pv) / split), "M5", workers)
 
 
+@_phase('m5/test', 'm5/labels/test.jsonl', 'm1/splits/train.jsonl')
 def m5_report(pv: PVConfig, baseline: str = "", reps: int = 1000) -> str:
     """Single samples of every M5 system against the baseline (default: E3 if present, else E1), paired on the test
     prompts: m5/test/m5_report.md and m5_summary.json."""
@@ -790,6 +1126,7 @@ def m5_report(pv: PVConfig, baseline: str = "", reps: int = 1000) -> str:
     return _show(d / "m5_report.md")
 
 
+@_phase('m5/variants.json')
 def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k: int = 1, rounds: int = 8,
                  mix: float = 1.0, epochs: float = 1.0) -> None:
     """One round of 2c (rejection-sampling fine-tuning). With the adapter of `base` ("2a", "2b", or the previous round,
@@ -801,7 +1138,7 @@ def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k:
     root = _variant(pv, base).get("root", base)
     root_data = _variant(pv, root)["data"]
     adapter = m5_best_checkpoint(pv, base)
-    d = m5_dir(pv) / "selftrain" / f"r{round_no}"
+    d = _need(pv, m5_dir(pv) / "selftrain" / f"r{round_no}")
     gens = d / "runs" / "search" / "generations.jsonl"
     gens.parent.mkdir(parents=True, exist_ok=True)
     print(f"2c round {round_no}: prompts from {root} ({root_data}), adapter of {base} ({adapter})")
@@ -839,6 +1176,7 @@ def _show(path: pathlib.Path) -> str:
     return text
 
 
+@_phase('m6', 'm4/test', 'm5/test')
 def m6_collect(pv: PVConfig, m4_conditions: tuple = ()) -> None:
     """Gather the final systems (one poem per test prompt): the M4 test conditions (all, or those whose file name
     contains one of m4_conditions, e.g. ("i0_single", "best_of_2", "i2_k1_r8")), every M5 test run, and the human
@@ -850,6 +1188,7 @@ def m6_collect(pv: PVConfig, m4_conditions: tuple = ()) -> None:
     pv.run(args, label="M6 collect", quiet=False)
 
 
+@_phase('m6')
 def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bool = False, max_cost_usd: float = 0.0,
              workers: int = 6) -> None:
     """The paper's LLM judge (five metrics, 1-5; paid, through OpenRouter: one poem is five calls) on the same
@@ -869,7 +1208,7 @@ def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bo
         if max_cost_usd:
             cmd += ["--max-cost-usd", str(max_cost_usd)]
         code = sc.run([pv.py, "-u", *cmd], label=f"M6 judge {p.stem}", cwd=pv.repo, env=pv.sc_cfg.env(), check=False,
-                      drop=(), stall_after=pv.sc_cfg.stall_seconds)
+                      drop=(), stall_after=pv.sc_cfg.stall_seconds, stop_on_interrupt=True)
         if code == 4:
             print(f"■ {p.stem}: stopped at the cost limit; run again with a higher max_cost_usd to continue")
         elif code not in (0,):
@@ -878,6 +1217,7 @@ def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bo
             break
 
 
+@_phase('m6')
 def m6_human_sheet(pv: PVConfig, names: tuple, prompts: int = 40) -> pathlib.Path:
     """A blinded rating sheet (m6/human/rating_sheet.csv; open it in Google Sheets) for `prompts` prompts x the given
     systems, and its key (rating_key.json; keep it from the raters). Give each rater a copy; put the filled copies in
@@ -889,6 +1229,7 @@ def m6_human_sheet(pv: PVConfig, names: tuple, prompts: int = 40) -> pathlib.Pat
     return m6_dir(pv) / "human" / "rating_sheet.csv"
 
 
+@_phase('m6')
 def m6_human_score(pv: PVConfig) -> None:
     """Unblind and summarise every filled sheet in m6/human/filled/*.csv."""
     _need_env(pv)
@@ -899,6 +1240,7 @@ def m6_human_score(pv: PVConfig) -> None:
            label="M6 human ratings", quiet=False)
 
 
+@_phase('m6', 'm1/splits/train.jsonl')
 def m6_report(pv: PVConfig, baseline: str = "", reps: int = 1000) -> str:
     """The quality table of the final systems: judge metrics, strict validity, copying and diversity, human ratings;
     paired differences to the baseline. m6/m6_report.md and m6_summary.json."""
