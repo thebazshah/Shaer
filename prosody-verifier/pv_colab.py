@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.5.2"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.5.3"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -230,6 +230,12 @@ _API_FACTORY = _drive_api           # tests replace it
 _ON_DRIVE: dict[str, dict] = {}     # drive_root -> {relative path: (size, mtime_ns) of the VM file whose content Drive has}
 
 
+def _rate_limited(exc: Exception) -> bool:
+    """Drive answered 403 rateLimitExceeded / quota exceeded or 429: a wait helps, the request itself is fine."""
+    text = f"{exc.__class__.__name__} {exc}".lower()
+    return any(k in text for k in ("ratelimit", "quota", "429", "too many requests"))
+
+
 class _Mirror:
     """Keeps pvc.drive_root on Drive in step with pvc.root on the VM's disk, for the folders and files a phase uses."""
 
@@ -383,14 +389,17 @@ class _Mirror:
     # -- the background loop
     def start(self) -> None:
         def loop():
-            while not self.stop_event.wait(SYNC_EVERY):
+            wait = SYNC_EVERY
+            while not self.stop_event.wait(wait):
                 try:
                     self.sync_once()
-                    self.errors = 0
+                    self.errors, wait = 0, SYNC_EVERY
                 except Exception as exc:
                     self.errors += 1
-                    print(f"  ⚠ Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]}); retrying in {SYNC_EVERY} s",
-                          flush=True)
+                    # Google's request quota is shared by many Colab users: when it is hit, ask less often (up to 8x)
+                    wait = SYNC_EVERY * 2 ** min(self.errors, 3) if _rate_limited(exc) else SYNC_EVERY
+                    print(f"  ⚠ Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]}); retrying in {wait:g} s. "
+                          "The step itself is not affected: its results are safe on this VM and are uploaded later.", flush=True)
         self.thread = threading.Thread(target=loop, daemon=True)
         self.thread.start()
 
@@ -399,14 +408,17 @@ class _Mirror:
         self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=5)
-        for attempt in range(3):
+        attempts = 8                                 # a rate limit (shared quota) usually clears within minutes: be patient
+        for attempt in range(attempts):
             try:
                 n = self.sync_once(final=True)
                 break
             except Exception as exc:
-                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})", flush=True)
-                if attempt < 2:
-                    time.sleep(10)
+                limited = _rate_limited(exc)
+                print(f"  ⚠ final Drive upload failed ({exc.__class__.__name__}: {str(exc)[:160]})"
+                      + (" - Drive's request quota is used up for the moment" if limited else ""), flush=True)
+                if attempt < attempts - 1:
+                    time.sleep(min(120, 15 * 2 ** attempt) if limited else 10)
         else:
             if isinstance(self.api, sc._LocalFolderAPI):
                 print(f"  ✖ NOT EVERYTHING IS ON DRIVE: the newest results are on this VM ({self.local}). Do not end the "

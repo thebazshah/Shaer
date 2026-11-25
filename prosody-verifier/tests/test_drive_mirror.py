@@ -405,3 +405,26 @@ def test_search_runs_need_a_passed_selfcheck(pvc):
         pv._require_selfcheck(pvc)
     path.write_text(json.dumps(dict(argmax_agreement_pct=100.0, logit_max_abs_diff=0.25, greedy_identical_pct=87.5)))
     pv._require_selfcheck(pvc)
+
+
+def test_a_drive_rate_limit_is_waited_out_not_fatal(pvc, monkeypatch, capsys):
+    sleeps = []
+    monkeypatch.setattr(pv.time, "sleep", lambda s: sleeps.append(s))
+    real = sc._LocalFolderAPI.upload
+    state = {"fail": 3}
+
+    def flaky(self, *a, **k):
+        if state["fail"]:
+            state["fail"] -= 1
+            raise OSError('HttpError 403 "Quota exceeded for quota metric Queries ... rateLimitExceeded"')
+        return real(self, *a, **k)
+    monkeypatch.setattr(sc._LocalFolderAPI, "upload", flaky)
+    assert pv._rate_limited(OSError("HttpError 403 rateLimitExceeded")) and not pv._rate_limited(OSError("disk full"))
+
+    @pv._phase("m4")
+    def step(p):
+        (p.root / "m4").mkdir(parents=True, exist_ok=True)
+        (p.root / "m4" / "g.jsonl").write_text('{"id": 1}\n')
+    step(pvc)
+    assert (pvc.drive_root / "m4" / "g.jsonl").exists()                       # got through after three limited attempts
+    assert sleeps[:3] == [15, 30, 60] and "request quota" in capsys.readouterr().out
