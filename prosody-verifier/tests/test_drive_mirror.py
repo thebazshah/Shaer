@@ -267,7 +267,7 @@ def test_a_crashed_generation_continues_from_the_poems_it_saved(tmp_path, monkey
         if len(calls) < 4:                      # crashes three times, each time after saving a poem
             raise RuntimeError("CUDA error")
     pv._resuming_generation(start, out, "M4 test i1_n1")
-    assert len(calls) == 4 and "continues from the 1 poems" in capsys.readouterr().out
+    assert len(calls) == 4 and "continues from the 1 rows" in capsys.readouterr().out
 
 
 def test_a_generation_that_never_progresses_gives_up(tmp_path, monkeypatch):
@@ -295,3 +295,32 @@ def test_the_runtime_is_released_only_when_everything_is_on_drive(pvc, monkeypat
     monkeypatch.setattr(pv, "sync_to_drive", lambda p, scope=".": False)
     pv.release_runtime(pvc)
     assert released == [1] and "NOT releasing" in capsys.readouterr().out
+
+
+def test_training_restarts_after_a_crash_but_not_forever(tmp_path, monkeypatch, capsys):
+    """sc.start_training's foreground loop (used by M5): a crash that is not out-of-memory restarts it from the checkpoint."""
+    class Up:
+        def __init__(self, *a, **k): pass
+        def start(self): pass
+        def finish(self): return True
+    cfg = sc.make_config(base_model=sc.YEHIA, drive_base=str(tmp_path / "MyDrive"))
+    monkeypatch.setattr(sc, "_CheckpointUploader", Up)
+    monkeypatch.setattr(sc, "flush_drive", lambda remount=True: True)
+    monkeypatch.setattr(sc, "code_version", lambda c: "test")
+    monkeypatch.setattr(sc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sc, "_pid_file", lambda c: tmp_path / "pid")
+    monkeypatch.setattr(sc, "_log_has_oom", lambda *a, **k: False)
+    log = tmp_path / "train.log"
+    calls = []
+
+    def fake_run(*a, **k):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise RuntimeError("training exited with code 1")
+    monkeypatch.setattr(sc, "run", fake_run)
+    sc._train_foreground(cfg, ["x"], {}, log, True, 3, "mount")
+    assert len(calls) == 3 and "restart 2/3" in capsys.readouterr().out
+    calls.clear()
+    monkeypatch.setattr(sc, "run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        sc._train_foreground(cfg, ["x"], {}, log, True, 1, "mount")

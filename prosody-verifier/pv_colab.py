@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.3.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.3.1"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -120,23 +120,30 @@ def _resuming(start, label: str):
             time.sleep(10)
 
 
+def _saved(path: pathlib.Path) -> int:
+    """Rows a script has saved: of a file, or of every .jsonl under a folder."""
+    if path.is_dir():
+        return sum(_lines(f) for f in path.rglob("*.jsonl"))
+    return _lines(path)
+
+
 def _resuming_generation(start, out: pathlib.Path, label: str, max_failures: int = 3):
-    """Like _resuming, for a GPU generation script that appends each finished poem to `out`: besides a hang, a crash (a CUDA
+    """Like _resuming, for a script that appends each finished row to `out` (a file, or a folder of .jsonl files): besides a hang, a crash (a CUDA
     or out-of-memory error, a dropped model download, a killed process) starts the script again. It continues from the poems
     already written. Only attempts that add no poem count as failures: after `max_failures` of those in a row it gives up
     with the last error (a genuine bug should not loop)."""
     failures = 0
     while True:
-        before = _lines(out)
+        before = _saved(out)
         try:
             return _resuming(start, label)
         except (sc.StepStalled, RuntimeError) as exc:
-            if _lines(out) > before:
+            if _saved(out) > before:
                 failures = 0
             failures += 1
             if failures >= max_failures:
                 raise
-            print(f"⚠ {label} stopped: {str(exc)[:300]}\n  starting it again, it continues from the {_lines(out):,} poems it saved "
+            print(f"⚠ {label} stopped: {str(exc)[:300]}\n  starting it again, it continues from the {_saved(out):,} rows it saved "
                   f"({failures}/{max_failures - 1} retries without progress) ...", flush=True)
             time.sleep(20)
 
@@ -1065,8 +1072,9 @@ def m5_relabel(pv: PVConfig, workers: int = 0) -> pathlib.Path:
     _need_env(pv)
     out = m5_dir(pv) / "labels"
     t0 = sc._start("M5: labelling the corpus with the verifier", "about 116k poems; every finished chunk is on Drive")
-    pv.run([HERE / "m5_data.py", "relabel", "--source", M5_SOURCE, "--out", out,
-            *(["--workers", str(workers)] if workers else [])], label="M5 relabel")
+    _resuming_generation(lambda: pv.run([HERE / "m5_data.py", "relabel", "--source", M5_SOURCE, "--out", out,
+                                         *(["--workers", str(workers)] if workers else [])], label="M5 relabel"),
+                         out, "M5 relabel")
     sc._finish(t0, f"M5 labels -> {out}")
     return out
 
@@ -1147,8 +1155,10 @@ def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0)
     _need(pv, m5_dir(pv) / split)                # resume from the poems already on Drive
     out = m5_dir(pv) / split / "runs" / name / "generations.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
-    pv.run([HERE / "m4_decode.py", "sample", "--split", split, "--subset", str(subset), "--num-samples", "1", "--out", out,
-            "--base-model", pv.sc_cfg.base_model, "--dataset-id", data, *adapter], label=f"M5 generation {name}")
+    _resuming_generation(lambda: pv.run([HERE / "m4_decode.py", "sample", "--split", split, "--subset", str(subset),
+                                         "--num-samples", "1", "--out", out, "--base-model", pv.sc_cfg.base_model,
+                                         "--dataset-id", data, *adapter], label=f"M5 generation {name}"),
+                         out, f"M5 generation {name}")
     return out
 
 
@@ -1213,9 +1223,11 @@ def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k:
     print(f"2c round {round_no}: prompts from {root} ({root_data}), adapter of {base} ({adapter})")
     if _lines(gens) < prompts:
         _need_gpu("the 2c search")
-        pv.run([HERE / "m4_decode.py", "search", "--split", "train", "--subset", str(prompts), "--subset-seed",
-                str(2026 + round_no), "--k", str(k), "--rounds", str(rounds), "--out", gens, "--base-model",
-                pv.sc_cfg.base_model, "--dataset-id", root_data, "--adapter-path", adapter], label=f"2c r{round_no} search")
+        _resuming_generation(lambda: pv.run([HERE / "m4_decode.py", "search", "--split", "train", "--subset", str(prompts),
+                                             "--subset-seed", str(2026 + round_no), "--k", str(k), "--rounds", str(rounds),
+                                             "--out", gens, "--base-model", pv.sc_cfg.base_model, "--dataset-id", root_data,
+                                             "--adapter-path", adapter], label=f"2c r{round_no} search"),
+                             gens, f"2c r{round_no} search")
     accepted = d / "accepted.jsonl"
     pv.run([HERE / "m5_data.py", "accept", "--generations", gens, "--source", M5_SOURCE, "--base", root_data,
             "--out", accepted], label=f"2c r{round_no} gate")

@@ -23,8 +23,8 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.16.1"
-__updated__ = "2026-11-22 17:31 UTC"
+__version__ = "1.16.2"
+__updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.16.0"
 
 import collections
@@ -1331,8 +1331,14 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                     raise
                 restarts += 1
                 print(f"⚠ {exc}\n  restarting from the last checkpoint (restart {restarts}/{max_restarts}) ...", flush=True)
-            except RuntimeError:
+            except RuntimeError as exc:
                 if not _log_has_oom(log):
+                    if auto_restart and restarts < max_restarts:     # a crash (CUDA error, dropped download, killed process)
+                        restarts += 1
+                        print(f"⚠ training stopped: {str(exc)[:300]}\n  restarting from the last checkpoint "
+                              f"(restart {restarts}/{max_restarts}) ...", flush=True)
+                        time.sleep(20)
+                        continue
                     raise
                 eval_bs = int(env.get("SFT_PER_DEVICE_EVAL_BATCH_SIZE", "1"))
                 if eval_bs > 1 and _log_has_oom(log, during_eval=True):
