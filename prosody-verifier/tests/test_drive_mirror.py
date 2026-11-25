@@ -253,3 +253,45 @@ def test_a_stuck_script_is_restarted_instead_of_ending_the_cell(monkeypatch, cap
         return 0
     assert pv._resuming(start, "M3 e1") == 0 and len(calls) == 3
     assert "restarting M3 e1 automatically" in capsys.readouterr().out
+
+
+def test_a_crashed_generation_continues_from_the_poems_it_saved(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pv.time, "sleep", lambda s: None)
+    out = tmp_path / "generations.jsonl"
+    calls = []
+
+    def start():
+        calls.append(1)
+        with out.open("a") as f:
+            f.write('{"id": %d}\n' % len(calls))
+        if len(calls) < 4:                      # crashes three times, each time after saving a poem
+            raise RuntimeError("CUDA error")
+    pv._resuming_generation(start, out, "M4 test i1_n1")
+    assert len(calls) == 4 and "continues from the 1 poems" in capsys.readouterr().out
+
+
+def test_a_generation_that_never_progresses_gives_up(tmp_path, monkeypatch):
+    monkeypatch.setattr(pv.time, "sleep", lambda s: None)
+    calls = []
+
+    def start():
+        calls.append(1)
+        raise RuntimeError("bug")
+    with pytest.raises(RuntimeError):
+        pv._resuming_generation(start, tmp_path / "g.jsonl", "x")
+    assert len(calls) == 3
+
+
+def test_the_runtime_is_released_only_when_everything_is_on_drive(pvc, monkeypatch, capsys):
+    import types
+    released = []
+    colab = types.ModuleType("google.colab"); colab.runtime = types.SimpleNamespace(unassign=lambda: released.append(1))
+    monkeypatch.setitem(sys.modules, "google", types.ModuleType("google"))
+    monkeypatch.setitem(sys.modules, "google.colab", colab)
+    (pvc.root / "m4").mkdir(parents=True)
+    (pvc.root / "m4" / "a.json").write_text("{}")
+    pv.release_runtime(pvc)
+    assert released == [1] and (pvc.drive_root / "m4" / "a.json").exists()
+    monkeypatch.setattr(pv, "sync_to_drive", lambda p, scope=".": False)
+    pv.release_runtime(pvc)
+    assert released == [1] and "NOT releasing" in capsys.readouterr().out

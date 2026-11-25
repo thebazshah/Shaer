@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.2.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.3.0"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -118,6 +118,27 @@ def _resuming(start, label: str):
             print(f"⚠ {exc}\n  restarting {label} automatically, it continues from what is saved "
                   f"(restart {attempt + 1}/{MAX_STALL_RESTARTS}) ...", flush=True)
             time.sleep(10)
+
+
+def _resuming_generation(start, out: pathlib.Path, label: str, max_failures: int = 3):
+    """Like _resuming, for a GPU generation script that appends each finished poem to `out`: besides a hang, a crash (a CUDA
+    or out-of-memory error, a dropped model download, a killed process) starts the script again. It continues from the poems
+    already written. Only attempts that add no poem count as failures: after `max_failures` of those in a row it gives up
+    with the last error (a genuine bug should not loop)."""
+    failures = 0
+    while True:
+        before = _lines(out)
+        try:
+            return _resuming(start, label)
+        except (sc.StepStalled, RuntimeError) as exc:
+            if _lines(out) > before:
+                failures = 0
+            failures += 1
+            if failures >= max_failures:
+                raise
+            print(f"⚠ {label} stopped: {str(exc)[:300]}\n  starting it again, it continues from the {_lines(out):,} poems it saved "
+                  f"({failures}/{max_failures - 1} retries without progress) ...", flush=True)
+            time.sleep(20)
 
 
 # ---------------------------------------------------------------------------------------------- never write into the baseline
@@ -446,15 +467,29 @@ def _need(pv: "PVConfig", path) -> pathlib.Path:
     return path
 
 
-def sync_to_drive(pv: "PVConfig", scope: str = ".") -> None:
+def sync_to_drive(pv: "PVConfig", scope: str = ".") -> bool:
     """Upload everything under pvc.root (or one sub-folder) that Drive does not have yet, verified. Normally not needed:
     every step does it by itself; this is for an interrupted final upload."""
     if not pv.mirrored:
         print("results are written to Drive directly (no mirror on this machine)")
-        return
+        return True
     mirror = _Mirror(pv, _API_FACTORY())
     mirror.scopes = [scope]
-    mirror.finish()
+    return mirror.finish()
+
+
+def release_runtime(pv: "PVConfig") -> None:
+    """End this Colab session (runtime.unassign) so it stops using compute units, but only after everything this notebook
+    wrote is on Drive, verified. Otherwise it says so and keeps the session. Put it in the last cell of a Run all."""
+    if not sync_to_drive(pv):
+        print("■ NOT releasing the runtime: not everything is on Drive yet. Run pv.sync_to_drive(pvc) until it says so.")
+        return
+    if not sc.flush_drive(remount=False):
+        print("■ NOT releasing the runtime: the Drive flush did not finish.")
+        return
+    from google.colab import runtime
+    print("✔ everything is on Drive; releasing the runtime (this ends the session)")
+    runtime.unassign()
 
 
 def check_version(notebook_version: str) -> None:
@@ -833,7 +868,7 @@ def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samp
     args += ["--num-samples", str(num_samples)] if mode == "sample" else ["--k", str(k), "--rounds", str(rounds)]
     if mode == "search" and run.endswith("_b"):
         args += ["--check", "binding"]
-    pv.run([*args, *(extra or [])], label=f"M4 {split} {run}")
+    _resuming_generation(lambda: pv.run([*args, *(extra or [])], label=f"M4 {split} {run}"), out, f"M4 {split} {run}")
     return out
 
 
@@ -848,10 +883,17 @@ def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMP
     t0 = sc._start(f"M4 development sweep: {len(runs)} runs on {subset} eval prompts",
                    "the sample run is the long one (about 2 h on an A100 for 16 samples per prompt); each search run "
                    "takes minutes to tens of minutes; every finished poem is on Drive")
+    failed: dict[str, str] = {}
     for name, kw in runs:
         if only and name not in only:
             continue
-        m4_generate(pv, "eval", name, subset=subset, **kw)
+        try:
+            m4_generate(pv, "eval", name, subset=subset, **kw)
+        except RuntimeError as exc:                  # one failed run must not waste the rest of the sweep
+            failed[name] = str(exc)[:300]
+            print(f"✖ {name} failed ({failed[name]}); going on with the next run", flush=True)
+    if failed:
+        raise RuntimeError("these runs did not finish, run this cell again to resume them: " + ", ".join(failed))
     sc._finish(t0, "M4 development sweep")
 
 
@@ -859,8 +901,15 @@ def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMP
 def m4_test(pv: PVConfig, k: int, rounds: int, samples: int) -> None:
     """The final runs on the full test split (3,481 prompts): the chosen search configuration and best-of-`samples`.
     Choose them on the development sweep first (m4_report(pvc, "eval") prints the choice its rule makes)."""
-    m4_generate(pv, "test", f"i2_k{k}_r{rounds}", k=k, rounds=rounds)
-    m4_generate(pv, "test", f"i1_n{samples}", num_samples=samples)
+    failed = []
+    for name, kw in ((f"i2_k{k}_r{rounds}", dict(k=k, rounds=rounds)), (f"i1_n{samples}", dict(num_samples=samples))):
+        try:
+            m4_generate(pv, "test", name, **kw)
+        except RuntimeError as exc:
+            failed.append(name)
+            print(f"✖ {name} failed ({str(exc)[:300]}); going on with the other run", flush=True)
+    if failed:
+        raise RuntimeError("these runs did not finish, run this cell again to resume them: " + ", ".join(failed))
 
 
 @_phase('m4/eval')
