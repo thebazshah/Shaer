@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.5.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.5.1"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -919,8 +919,19 @@ def m4_test(pv: PVConfig, k: int, rounds: int, samples: int) -> None:
         raise RuntimeError("these runs did not finish, run this cell again to resume them: " + ", ".join(failed))
 
 
+def selfcheck_passed(res: dict) -> bool:
+    """The cache logits must match a full forward pass (argmax always, logits within 0.5), and hemistich-by-hemistich greedy
+    decoding must match one-shot greedy decoding on at least 75% of the poems, OR every poem that differs must differ at a
+    near-tie of two tokens' scores (within twice the measured logit difference): bf16 rounding can break such a tie either
+    way, and it is not a bug in the shared cache."""
+    base = res["argmax_agreement_pct"] == 100.0 and res["logit_max_abs_diff"] < 0.5
+    greedy = res["greedy_identical_pct"] >= 75.0 or (
+        res.get("greedy_divergences") and res.get("greedy_divergences_all_near_ties") is True)
+    return bool(base and greedy)
+
+
 @_phase('m4/eval')
-def m4_selfcheck(pv: PVConfig, prompts: int = 8) -> dict:
+def m4_selfcheck(pv: PVConfig, prompts: int = 16) -> dict:
     """Before the long runs (a few minutes on the GPU): on the real model with the adapter, the shared-cache logits against
     a full forward pass, and greedy decoding one hemistich at a time against one-shot greedy decoding (they must agree;
     bf16 can make a rare greedy tie break differently). Uses a few eval prompts."""
@@ -931,7 +942,7 @@ def m4_selfcheck(pv: PVConfig, prompts: int = 8) -> dict:
     pv.run([HERE / "m4_decode.py", "selfcheck", "--split", "eval", "--subset", str(prompts), "--out", out,
             "--base-model", cfg.base_model], label="M4 self-check")
     res = json.loads(out.read_text())
-    ok = res["argmax_agreement_pct"] == 100.0 and res["greedy_identical_pct"] >= 75.0 and res["logit_max_abs_diff"] < 0.5
+    ok = selfcheck_passed(res)
     print("self-check:", "PASSED" if ok else "FAILED: do not start the long runs; send me selfcheck.json", res)
     return res
 

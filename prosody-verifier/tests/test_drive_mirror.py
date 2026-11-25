@@ -382,3 +382,13 @@ def test_a_filled_human_study_is_never_overwritten(tmp_path):
     with pytest.raises(ValueError):
         Q.human_sheet(tmp_path, ["a", "b"], prompts=2)                       # different prompts: would break the item codes
     assert key.read_text() == before[1]
+
+
+def test_selfcheck_verdict_accepts_near_ties_and_rejects_real_differences():
+    ok = dict(argmax_agreement_pct=100.0, logit_max_abs_diff=0.25, greedy_identical_pct=62.5)
+    assert not pv.selfcheck_passed(ok)                                              # the old rule alone: 5 of 8
+    assert pv.selfcheck_passed({**ok, "greedy_divergences": [{"near_tie": True}] * 3, "greedy_divergences_all_near_ties": True})
+    assert not pv.selfcheck_passed({**ok, "greedy_divergences": [{"near_tie": True}, {"near_tie": False}],
+                                    "greedy_divergences_all_near_ties": False})
+    assert not pv.selfcheck_passed({**ok, "argmax_agreement_pct": 87.5, "greedy_identical_pct": 100.0})
+    assert pv.selfcheck_passed({**ok, "greedy_identical_pct": 87.5})

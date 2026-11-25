@@ -469,6 +469,30 @@ def run_search(args, model, tok, device, rows: list[dict], out: Path, pool: Chec
                   "finished_at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 
+def explain_divergence(model, tok, device, args, row: dict, state, one_shot: list, tol: float) -> dict:
+    """Why did hemistich-by-hemistich greedy decoding differ from one-shot greedy decoding on this poem? Find the first
+    token where they differ and, on a full forward pass over the common prefix (with the repetition penalty), the gap
+    between the two tokens' scores. A gap within `tol` (twice the largest cache-vs-full logit difference measured above)
+    is a near-tie that bf16 rounding can break either way: expected, not a bug. A larger gap would be a real difference."""
+    import torch
+    from transformers import RepetitionPenaltyLogitsProcessor
+    prompt = tok(row["sft_prompt"], add_special_tokens=False).input_ids
+    step = state.context[state.prompt_len:]
+    n = min(len(step), len(one_shot))
+    i = next((j for j in range(n) if step[j] != one_shot[j]), None)
+    if i is None:
+        return {"id": row["id"], "token_index": None, "gap": None, "near_tie": False,
+                "note": "the token ids agree where both exist; the lines differ only in how they were cut"}
+    ids = torch.tensor([prompt + one_shot[:i]], device=device)
+    with torch.inference_mode():
+        logits = model(input_ids=ids, use_cache=False).logits[:, -1].float()
+    logits = RepetitionPenaltyLogitsProcessor(args.repetition_penalty)(ids, logits)[0]
+    a, b = one_shot[i], step[i]
+    gap = float((logits[a] - logits[b]).abs())
+    return {"id": row["id"], "token_index": i, "one_shot_token": tok.decode([a]), "stepwise_token": tok.decode([b]),
+            "gap": round(gap, 4), "near_tie": gap <= tol}
+
+
 def run_selfcheck(args, model, tok, device, rows: list[dict], out: Path) -> dict:
     """On the real model: (1) the next-token logits from the shared cache against a full forward pass, on contexts that
     end inside a poem; (2) greedy decoding one hemistich at a time with a checker that accepts everything, against
@@ -504,7 +528,7 @@ def run_selfcheck(args, model, tok, device, rows: list[dict], out: Path) -> dict
                         tok(r["sft_prompt"], add_special_tokens=False).input_ids,
                         len(tok(r["sft_prompt"], add_special_tokens=False).input_ids)) for r in rows]
     SearchRunner(gen, AcceptAll(), k=1, rounds=1).run(states)
-    same, compared = 0, 0
+    same, compared, divergences = 0, 0, []
     for s, r in zip(states, rows):
         enc = tok(r["sft_prompt"], return_tensors="pt", add_special_tokens=False).to(device)
         with torch.inference_mode():
@@ -516,10 +540,19 @@ def run_selfcheck(args, model, tok, device, rows: list[dict], out: Path) -> dict
         if k <= 0:
             continue
         compared += 1
-        same += s.lines[:k] == lines[:k]
+        if s.lines[:k] == lines[:k]:
+            same += 1
+        else:
+            try:
+                divergences.append(explain_divergence(model, tok, device, args, r, s, one, tol=2 * max(diffs)))
+            except Exception as exc:                  # the diagnosis must never hide the check itself
+                divergences.append({"id": r["id"], "token_index": None, "gap": None, "near_tie": False,
+                                    "note": f"could not explain: {exc.__class__.__name__}: {str(exc)[:200]}"})
     res = {"contexts": len(ctxs), "logit_max_abs_diff": round(max(diffs), 4), "logit_mean_abs_diff": round(sum(diffs) / len(diffs), 4),
            "argmax_agreement_pct": round(100 * agree / len(ctxs), 2), "greedy_poems_compared": compared,
-           "greedy_identical_pct": round(100 * same / max(1, compared), 2), "dtype": args.dtype}
+           "greedy_identical_pct": round(100 * same / max(1, compared), 2), "dtype": args.dtype,
+           "greedy_divergences": divergences,
+           "greedy_divergences_all_near_ties": all(d["near_tie"] for d in divergences)}
     out.write_text(json.dumps(res, indent=2))
     print(json.dumps(res, indent=2), flush=True)
     return res
