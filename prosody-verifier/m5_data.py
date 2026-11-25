@@ -172,7 +172,12 @@ def relabel(source: str, out_dir: Path, lexicon: str, workers: int, chunk: int =
     for split in SPLITS:
         rows = data[split][: limit or None]
         path = out_dir / f"{split}.jsonl"
-        done = {r["index"] for r in read_jsonl(path)}
+        kept = read_jsonl(path)
+        if path.exists():                 # drop a line cut by an interrupted write: appending would glue a record onto it
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept), encoding="utf-8")
+            tmp.replace(path)
+        done = {r["index"] for r in kept}
         todo = [(i, r) for i, r in enumerate(rows) if i not in done]
         print(f"{split}: {len(rows):,} poems, {len(done):,} already labelled, {len(todo):,} to label", flush=True)
         jobs = [(split, todo[k:k + chunk]) for k in range(0, len(todo), chunk)]

@@ -324,3 +324,25 @@ def test_training_restarts_after_a_crash_but_not_forever(tmp_path, monkeypatch, 
     monkeypatch.setattr(sc, "run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         sc._train_foreground(cfg, ["x"], {}, log, True, 1, "mount")
+
+
+def test_scoring_resumes_after_the_rows_already_scored(tmp_path):
+    import json
+    import meter_score_batched as msb
+    rows = [{"id": f"p{i}", "sample_idx": 0} for i in range(5)]
+    out = tmp_path / "scored.jsonl"
+    out.write_text("".join(json.dumps({**r, "meter": 1}) + "\n" for r in rows[:3]) + '{"id": "p3", "sampl')   # cut line
+    assert len(msb.resume_prefix(out, rows)) == 3
+    assert msb.resume_prefix(out, rows[1:]) == []                       # not the beginning of this input: start again
+    assert msb.resume_prefix(tmp_path / "none.jsonl", rows) == []
+
+
+def test_labels_reader_skips_a_cut_line(tmp_path):
+    import json
+    import m5_data
+    src = {s: [] for s in m5_data.SPLITS}
+    out = tmp_path / "labels"
+    out.mkdir()
+    (out / "train.jsonl").write_text(json.dumps({"index": 0}) + "\n" + '{"index": 1, "ra')
+    kept = m5_data.read_jsonl(out / "train.jsonl")
+    assert [r["index"] for r in kept] == [0]

@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.3.1"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.4.0"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -977,8 +977,7 @@ def _score_runs(pv: PVConfig, d: pathlib.Path, label: str, workers: int = 0) -> 
             print(f"{run.name}: generation has not finished yet; scoring what is there")
         scored = run / "scored.jsonl"
         if _lines(scored) < _lines(gens):
-            scored.unlink(missing_ok=True)          # the scorer rewrites its file: score the whole run again
-            _score(pv, gens, scored, f"scoring {run.name}")
+            _score(pv, gens, scored, f"scoring {run.name}")      # continues after the rows already scored
         pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", run.name, "--out-dir", d / "m3", *extra],
                label=f"{label} verifier {run.name}")
 

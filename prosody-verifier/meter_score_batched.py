@@ -27,6 +27,28 @@ sys.path.insert(0, str(REPO / "evaluation"))
 sys.path.insert(0, str(REPO / "grpo"))
 
 
+def resume_prefix(out: Path, rows: list[dict]) -> list[str]:
+    """The complete lines of an earlier, interrupted output that are the first rows of `rows` (the generation file only
+    grows, so what was scored is its beginning). A line cut by an interrupted write ends it; an output that does not match
+    the input is ignored (everything is scored again)."""
+    kept: list[str] = []
+    if not Path(out).exists():
+        return kept
+    for line in open(out, encoding="utf-8"):
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            break
+        kept.append(line if line.endswith("\n") else line + "\n")
+    if len(kept) > len(rows):
+        return []
+    for k, r in zip(kept, rows):
+        d = json.loads(k)
+        if d.get("id") != r.get("id") or d.get("sample_idx") != r.get("sample_idx"):
+            return []
+    return kept
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-jsonl", required=True)
@@ -42,6 +64,15 @@ def main() -> int:
     from rewards.common import extract_text, pair_lines_to_bayts, poem_structure
 
     rows = [json.loads(line) for line in open(args.input_jsonl, encoding="utf-8") if line.strip()]
+    out = Path(args.output_jsonl)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    kept = resume_prefix(out, rows)
+    print(f"{len(kept):,} of {len(rows):,} poems already scored", flush=True)
+    todo_rows = rows[len(kept):]
+    if not todo_rows:
+        print(f"scored_rows={len(rows)} output={out}")
+        return 0
+    rows_all, rows = rows, todo_rows
     pred = M.get_meter_predictor()
     original_predict = pred.predict
     texts = set()
@@ -74,18 +105,17 @@ def main() -> int:
     print(f"check passed: {min(args.check, len(texts))} bayts give identical predictions one at a time", flush=True)
 
     pred.predict = batched_predict
-    out = Path(args.output_jsonl)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.name + ".partial")
-    with tmp.open("w", encoding="utf-8") as f:
+    with out.open("w", encoding="utf-8") as f:         # the complete rows kept above, then the new ones, each flushed
+        f.writelines(kept)
         for i, r in enumerate(rows, 1):
             s = dict(r)
             s.update(metrics.score_generation_row(r))
             f.write(json.dumps(s, ensure_ascii=False) + "\n")
+            if i % 100 == 0 or i == len(rows):
+                f.flush()
             if i % 500 == 0 or i == len(rows):
-                print(f"scored {i:,}/{len(rows):,} poems", flush=True)
-    os.replace(tmp, out)
-    print(f"scored_rows={len(rows)} output={out}")
+                print(f"scored {len(kept) + i:,}/{len(rows_all):,} poems", flush=True)
+    print(f"scored_rows={len(rows_all)} output={out}")
     return 0
 
 
