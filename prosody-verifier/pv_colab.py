@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.4.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.5.0"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -1268,6 +1268,51 @@ def m6_collect(pv: PVConfig, m4_conditions: tuple = ()) -> None:
     pv.run(args, label="M6 collect", quiet=False)
 
 
+def _judge_state(workers_dir: pathlib.Path) -> tuple[int, float]:
+    """(poems judged, money spent so far in USD) from the judge's per-worker result files."""
+    n, cost = 0, 0.0
+    for f in workers_dir.glob("worker_*.jsonl"):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            n += 1
+            cost += float(rec.get("judge_total_cost_usd") or 0.0)
+    return n, cost
+
+
+def _judge_with_retries(pv: PVConfig, name: str, cmd: list, workers_dir: pathlib.Path, max_cost_usd: float,
+                        max_failures: int = 3) -> int:
+    """The judge script keeps every judged poem and resumes, but it ends (exit 1: a worker failed, 3: the API calls looked
+    stuck) instead of trying again. Start it again, up to `max_failures` times in a row without a new poem. The budget
+    max_cost_usd covers all attempts of this call: each attempt only gets what is left of it."""
+    n0, cost0 = _judge_state(workers_dir)
+    failures = 0
+    while True:
+        n_before, _ = _judge_state(workers_dir)
+        args = list(cmd)
+        if max_cost_usd and "--max-cost-usd" in args:
+            left = max_cost_usd - (_judge_state(workers_dir)[1] - cost0)
+            if left <= 0:
+                return 4
+            args[args.index("--max-cost-usd") + 1] = f"{left:.4f}"
+        try:
+            code = _resuming(lambda: sc.run([pv.py, "-u", *args], label=f"M6 judge {name}", cwd=pv.repo, env=pv.sc_cfg.env(),
+                                            check=False, drop=(), stall_after=pv.sc_cfg.stall_seconds, stop_on_interrupt=True),
+                             f"M6 judge {name}")
+        except sc.StepStalled:
+            code = 3
+        if code not in (1, 3):
+            return code
+        failures = 0 if _judge_state(workers_dir)[0] > n_before else failures + 1
+        if failures >= max_failures:
+            return code
+        print(f"⚠ the judge stopped (exit {code}); starting it again, it keeps the {_judge_state(workers_dir)[0]:,} poems "
+              f"already judged ({failures}/{max_failures - 1} retries without progress) ...", flush=True)
+        time.sleep(30)
+
+
 @_phase('m6')
 def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bool = False, max_cost_usd: float = 0.0,
              workers: int = 6) -> None:
@@ -1275,6 +1320,9 @@ def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bo
     `limit_rows` prompts of every collected system (or of `names`). Start with dry_run=True (no call), then a small
     limit_rows; finished poems are kept, so a larger limit later only adds poems. max_cost_usd stops each system's run."""
     _need_env(pv)
+    if not dry_run and not pv.sc_cfg.openrouter_key:
+        raise RuntimeError("the judge needs the OpenRouter key: add the Colab secret OPENROUTER_API_KEY, then run section 1 "
+                           "and section 2 again")
     d = m6_dir(pv)
     pv.run([HERE / "m6_quality.py", "judge-input", "--out", d, *(["--names", ",".join(names)] if names else [])],
            label="M6 judge input", quiet=True)
@@ -1287,13 +1335,11 @@ def m6_judge(pv: PVConfig, names: tuple = (), limit_rows: int = 300, dry_run: bo
             cmd.append("--dry-run")
         if max_cost_usd:
             cmd += ["--max-cost-usd", str(max_cost_usd)]
-        code = _resuming(lambda: sc.run([pv.py, "-u", *cmd], label=f"M6 judge {p.stem}", cwd=pv.repo, env=pv.sc_cfg.env(),
-                                        check=False, drop=(), stall_after=pv.sc_cfg.stall_seconds, stop_on_interrupt=True),
-                         f"M6 judge {p.stem}")
+        code = _judge_with_retries(pv, p.stem, cmd, d / "judge" / p.stem / "workers", max_cost_usd)
         if code == 4:
             print(f"■ {p.stem}: stopped at the cost limit; run again with a higher max_cost_usd to continue")
         elif code not in (0,):
-            print(f"■ {p.stem}: the judge did not finish (exit {code}); run the cell again, it resumes")
+            print(f"■ {p.stem}: the judge did not finish (exit {code}) after automatic retries; run the cell again, it resumes")
         if dry_run:
             break
 

@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import random
 import shutil
+import time
 import sys
 from pathlib import Path
 
@@ -127,12 +129,28 @@ def human_sheet(out_dir: Path, names: list[str], prompts: int = 40, seed: int = 
     hdir = Path(out_dir) / "human"
     hdir.mkdir(parents=True, exist_ok=True)
     sheet, key_path = hdir / "rating_sheet.csv", hdir / "rating_key.json"
-    with open(sheet, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(items[0]))
-        w.writeheader()
-        w.writerows(items)
-    key_path.write_text(json.dumps({"seed": seed, "systems": names, "prompts": chosen, "scale": HUMAN_SCALE, "items": key},
-                                   ensure_ascii=False, indent=1))
+    new_key = json.dumps({"seed": seed, "systems": names, "prompts": chosen, "scale": HUMAN_SCALE, "items": key},
+                         ensure_ascii=False, indent=1)
+    buf = io.StringIO(newline="")
+    w = csv.DictWriter(buf, fieldnames=list(items[0]))
+    w.writeheader()
+    w.writerows(items)
+    new_sheet = buf.getvalue()
+    if sheet.exists() and key_path.exists():
+        same = key_path.read_text(encoding="utf-8") == new_key and sheet.read_text(encoding="utf-8-sig") == new_sheet
+        if same:                                       # run again (Run all, a new session): nothing changes, raters keep matching
+            print(f"sheet already made and unchanged: {sheet} ({len(items)} poems); key: {key_path}")
+            return sheet, key_path
+        if any((hdir / "filled").glob("*.csv")):
+            raise ValueError("a rating sheet was already made and filled sheets exist, but these systems, prompts or poems "
+                             "differ from it: a new sheet would no longer match the raters' item codes. Move the old "
+                             "m6/human folder away (or restore the systems) if you really want a new study.")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for f in (sheet, key_path):
+            f.rename(f.with_name(f"{f.stem}.old-{stamp}{f.suffix}"))
+        print(f"the sheet differed from the earlier one (not yet filled): the earlier one is kept as *.old-{stamp}", flush=True)
+    sheet.write_text(new_sheet, encoding="utf-8-sig", newline="")
+    key_path.write_text(new_key, encoding="utf-8")
     (hdir / "instructions.md").write_text(
         "# Rating instructions\n\nEach row is one poem written for the description beside it. Rate every poem on "
         f"{', '.join(HUMAN_COLUMNS)}: {HUMAN_SCALE}. 'meter_by_ear': does it sound metrical in the requested meter? "

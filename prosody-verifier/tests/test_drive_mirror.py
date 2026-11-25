@@ -346,3 +346,39 @@ def test_labels_reader_skips_a_cut_line(tmp_path):
     (out / "train.jsonl").write_text(json.dumps({"index": 0}) + "\n" + '{"index": 1, "ra')
     kept = m5_data.read_jsonl(out / "train.jsonl")
     assert [r["index"] for r in kept] == [0]
+
+
+def test_the_judge_is_restarted_within_one_budget(pvc, monkeypatch, tmp_path, capsys):
+    import json
+    monkeypatch.setattr(pv.time, "sleep", lambda s: None)
+    wd = tmp_path / "workers"
+    wd.mkdir()
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd[cmd.index("--max-cost-usd") + 1])
+        with (wd / "worker_0.jsonl").open("a") as f:
+            f.write(json.dumps({"judge_total_cost_usd": 1.0}) + "\n")
+        return 3 if len(calls) < 3 else 0
+    monkeypatch.setattr(sc, "run", fake_run)
+    code = pv._judge_with_retries(pvc, "m5_2a", ["j.py", "--max-cost-usd", "10"], wd, 10.0)
+    assert code == 0 and calls == ["10.0000", "9.0000", "8.0000"]        # every attempt gets what is left of the budget
+
+
+def test_a_filled_human_study_is_never_overwritten(tmp_path):
+    import json
+    import m6_quality as Q
+    sysdir = tmp_path / "systems"
+    sysdir.mkdir()
+    for name, text in (("a", "x\ny"), ("b", "z\nw")):
+        (sysdir / f"{name}.jsonl").write_text("".join(
+            json.dumps({"id": f"p{i}", "generated_text": text, "base_meter": "الطويل", "form": "تام"}) + "\n" for i in range(5)))
+    sheet, key = Q.human_sheet(tmp_path, ["a", "b"], prompts=3)
+    before = (sheet.read_text(encoding="utf-8-sig"), key.read_text())
+    Q.human_sheet(tmp_path, ["a", "b"], prompts=3)                           # run again: unchanged
+    assert (sheet.read_text(encoding="utf-8-sig"), key.read_text()) == before
+    (tmp_path / "human" / "filled").mkdir()
+    (tmp_path / "human" / "filled" / "rater1.csv").write_text("x")
+    with pytest.raises(ValueError):
+        Q.human_sheet(tmp_path, ["a", "b"], prompts=2)                       # different prompts: would break the item codes
+    assert key.read_text() == before[1]
