@@ -392,3 +392,16 @@ def test_selfcheck_verdict_accepts_near_ties_and_rejects_real_differences():
                                     "greedy_divergences_all_near_ties": False})
     assert not pv.selfcheck_passed({**ok, "argmax_agreement_pct": 87.5, "greedy_identical_pct": 100.0})
     assert pv.selfcheck_passed({**ok, "greedy_identical_pct": 87.5})
+
+
+def test_search_runs_need_a_passed_selfcheck(pvc):
+    path = pvc.root / "m4" / "eval" / "selfcheck.json"
+    with pytest.raises(RuntimeError, match="self-check first"):
+        pv._require_selfcheck(pvc)
+    path.parent.mkdir(parents=True)
+    import json
+    path.write_text(json.dumps(dict(argmax_agreement_pct=100.0, logit_max_abs_diff=0.25, greedy_identical_pct=62.5)))
+    with pytest.raises(RuntimeError, match="did not pass"):
+        pv._require_selfcheck(pvc)
+    path.write_text(json.dumps(dict(argmax_agreement_pct=100.0, logit_max_abs_diff=0.25, greedy_identical_pct=87.5)))
+    pv._require_selfcheck(pvc)

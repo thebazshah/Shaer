@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.5.1"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.5.2"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -870,6 +870,8 @@ def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samp
     out = m4_dir(pv, folder or split) / "runs" / run / "generations.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     mode = "sample" if run.startswith("i1") else "search"
+    if mode == "search":
+        _require_selfcheck(pv)
     args = [HERE / "m4_decode.py", mode, "--split", split, "--subset", str(subset), "--out", out,
             "--base-model", cfg.base_model, "--batch-size", str(batch_size)]
     args += ["--num-samples", str(num_samples)] if mode == "sample" else ["--k", str(k), "--rounds", str(rounds)]
@@ -884,6 +886,8 @@ def m4_dev(pv: PVConfig, subset: int = M4_DEV_SUBSET, samples: int = M4_DEV_SAMP
            only: tuple | None = None) -> None:
     """The development sweep on the eval split: one sample run (I0 and best-of-2 ... best-of-`samples`) and the search
     configurations, all on the same seeded subset of prompts. Resumable; `only=("i2_k4_r1",)` runs some of them."""
+    if any(not only or f"i2_k{k}_r{r}" in only or f"i2_k{k}_r{r}_b" in only for k, r, *_ in search):
+        _require_selfcheck(pv)                       # before the long sample run, so a failed check costs nothing
     runs = [(f"i1_n{samples}", dict(num_samples=samples))]
     for k, r, *check in search:
         runs.append((f"i2_k{k}_r{r}" + ("_b" if check and check[0] == "binding" else ""), dict(k=k, rounds=r)))
@@ -928,6 +932,17 @@ def selfcheck_passed(res: dict) -> bool:
     greedy = res["greedy_identical_pct"] >= 75.0 or (
         res.get("greedy_divergences") and res.get("greedy_divergences_all_near_ties") is True)
     return bool(base and greedy)
+
+
+def _require_selfcheck(pv: PVConfig) -> None:
+    """The hemistich search runs only after the self-check PASSED on this code: a failed or missing check stops the cell (and
+    so Run all) instead of letting hours of GPU time go into runs that might have to be thrown away."""
+    path = pv.root / "m4" / "eval" / "selfcheck.json"
+    if not path.exists():
+        raise RuntimeError("run the M4 self-check first (pv.m4_selfcheck(pvc)); the search runs need it to say PASSED")
+    if not selfcheck_passed(json.loads(path.read_text())):
+        raise RuntimeError("the M4 self-check did not pass (see m4/eval/selfcheck.json): the search runs are not started. "
+                           "Run pv.m4_selfcheck(pvc) again after pulling the latest code, or send me selfcheck.json.")
 
 
 @_phase('m4/eval')
@@ -1233,6 +1248,7 @@ def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k:
     print(f"2c round {round_no}: prompts from {root} ({root_data}), adapter of {base} ({adapter})")
     if _lines(gens) < prompts:
         _need_gpu("the 2c search")
+        _require_selfcheck(pv)
         _resuming_generation(lambda: pv.run([HERE / "m4_decode.py", "search", "--split", "train", "--subset", str(prompts),
                                              "--subset-seed", str(2026 + round_no), "--k", str(k), "--rounds", str(rounds),
                                              "--out", gens, "--base-model", pv.sc_cfg.base_model, "--dataset-id", root_data,
