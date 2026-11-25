@@ -42,8 +42,8 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.1.1"                    # bump on every change of the prosody code (and the notebook's version with it)
-__updated__ = "2026-11-24 UTC"
+__version__ = "1.2.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -754,8 +754,9 @@ def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding
     out = m3_dir(pv)
     systems = m3_systems(pv)
     print("systems:", ", ".join(systems))
-    t0 = sc._start("M3 strict re-scoring", "roughly 30-60 minutes per system and reading mode on a 2-core CPU runtime; "
-                   "resumable")
+    cores = workers or os.cpu_count() or 1
+    t0 = sc._start("M3 strict re-scoring", f"{cores} worker processes (one per CPU core); roughly 30-60 minutes per system and "
+                   "reading mode on a 2-core runtime, about 1/cores of that with more cores; resumable")
     extra = ["--workers", str(workers)] if workers else []
     for name, scored in systems.items():
         pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", name, "--out-dir", out,
