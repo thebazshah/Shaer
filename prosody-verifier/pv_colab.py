@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.5.3"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.5.4"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 

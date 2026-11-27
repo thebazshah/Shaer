@@ -428,3 +428,13 @@ def test_a_drive_rate_limit_is_waited_out_not_fatal(pvc, monkeypatch, capsys):
     step(pvc)
     assert (pvc.drive_root / "m4" / "g.jsonl").exists()                       # got through after three limited attempts
     assert sleeps[:3] == [15, 30, 60] and "request quota" in capsys.readouterr().out
+
+
+def test_the_eta_counts_work_not_poems():
+    import re
+    import m4_decode as D
+    t0 = time.time() - 600                             # 10 minutes in: the short poems (10% of the work) are done
+    plain = int(re.search(r"ETA ~(\d+)", D._bar(500, 1000, t0, 500)).group(1))
+    weighted = int(re.search(r"ETA ~(\d+)", D._bar(500, 1000, t0, 500, "", (0.0, 100.0, 1000.0))).group(1))
+    assert plain == 10 and weighted == 90               # half the poems, a tenth of the work: nine times longer to go
+    assert D.poem_work({"requested_num_lines": 40}, True) == 1600 and D.poem_work({"requested_num_lines": 4}, False) == 4

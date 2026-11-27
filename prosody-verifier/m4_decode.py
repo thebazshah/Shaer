@@ -347,12 +347,25 @@ def add_run(out: Path, summary: dict) -> None:
     meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
 
 
-def _bar(done: int, total: int, t_start: float, new: int, extra: str = "") -> str:
+def _bar(done: int, total: int, t_start: float, new: int, extra: str = "", work: tuple | None = None) -> str:
+    """Progress line. The ETA assumes every poem costs the same unless `work` = (work already done before this run, work
+    done in this run, total work) is given: batches are sorted by poem length, so the last ones are much slower than the first,
+    and a plain poems-per-minute rate is too hopeful."""
     el = time.time() - t_start
-    eta = (total - done) / (new / el) / 60 if new else float("nan")
+    if work and work[1] > 0:
+        before, new_work, total_work = work
+        eta = el * max(0.0, total_work - before - new_work) / new_work / 60
+    else:
+        eta = (total - done) / (new / el) / 60 if new else float("nan")
     filled = int(round(20 * done / max(1, total)))
     return (f"[{'█' * filled}{'░' * (20 - filled)}] {100 * done / max(1, total):5.1f}% {done}/{total} poems | "
-            f"{el / 60:.1f} min elapsed | ETA ~{eta:.0f} min{extra}")
+            f"{el / 60:.1f} min elapsed | ETA ~{eta:.0f} min (longer poems are slower; they come last){extra}")
+
+
+def poem_work(row: dict, search: bool) -> float:
+    """Relative cost of one poem: tokens grow with its length; the search also re-encodes a growing context per hemistich."""
+    n = max(1, int(row.get("requested_num_lines") or 2))
+    return float(n * n if search else n)
 
 
 def run_sample(args, model, tok, device, rows: list[dict], out: Path) -> None:
@@ -372,6 +385,8 @@ def run_sample(args, model, tok, device, rows: list[dict], out: Path) -> None:
     write_meta(out, args, {"mode": "sample", "n_prompts": len(rows)})
     eos = tok.eos_token_id
     t_start, new_rows, tok_total = time.time(), 0, 0
+    w_of = {r["id"]: poem_work(r, False) for r in rows}
+    w_total, w_before, w_new = n * sum(w_of.values()), sum(w_of.get(i, 0.0) for i, _ in done), 0.0
     with out.open("a", encoding="utf-8") as f:
         for b_no, batch in enumerate(batches):
             todo = [(i, s) for i, s in batch if (rows[i]["id"], s) not in done]
@@ -404,10 +419,11 @@ def run_sample(args, model, tok, device, rows: list[dict], out: Path) -> None:
                     tok_total += n_tok
                 f.flush()
                 new_rows += len(chunk)
+                w_new += sum(w_of[rows[i]["id"]] for i, _ in chunk)
                 peak = f" | peak GPU {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB" if device.type == "cuda" else ""
                 print(_bar(len(done) + new_rows, total, t_start, new_rows,
                            f" | batch {b_no + 1}/{len(batches)} ({len(chunk)} rows, {dt:.0f}s) | "
-                           f"{tok_total / (time.time() - t_start):.0f} tok/s{peak}"), flush=True)
+                           f"{tok_total / (time.time() - t_start):.0f} tok/s{peak}", (w_before, w_new, w_total)), flush=True)
     add_run(out, {"new_rows": new_rows, "seconds": time.time() - t_start, "tokens": tok_total,
                   "finished_at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
@@ -427,6 +443,8 @@ def run_search(args, model, tok, device, rows: list[dict], out: Path, pool: Chec
           flush=True)
     write_meta(out, args, {"mode": "search", "n_prompts": len(rows), "config": config, "newline_id": gen.newline})
     t_start, new_rows, stats = time.time(), 0, {"hemistichs": 0, "first": 0, "forced": 0, "tokens": 0}
+    w_of = {r["id"]: poem_work(r, True) for r in rows}
+    w_total, w_before, w_new = sum(w_of.values()), sum(w_of.get(i, 0.0) for i, _ in done), 0.0
     with out.open("a", encoding="utf-8") as f:
         for b_no, batch in enumerate(batches):
             todo = [i for i in batch if (rows[i]["id"], 0) not in done]
@@ -459,12 +477,13 @@ def run_search(args, model, tok, device, rows: list[dict], out: Path, pool: Chec
 
             runner.run(states, progress)
             new_rows += len(states)
+            w_new += sum(w_of[rows[i]["id"]] for i in todo)
             h = max(1, stats["hemistichs"])
             peak = f" | peak GPU {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB" if device.type == "cuda" else ""
             print(_bar(len(done) + new_rows, len(rows), t_start, new_rows,
                        f" | batch {b_no + 1}/{len(batches)} ({len(states)} poems) | first candidate passes "
                        f"{100 * stats['first'] / h:.0f}% | forced {100 * stats['forced'] / h:.1f}% of hemistichs | "
-                       f"{stats['tokens'] / (time.time() - t_start):.0f} tok/s{peak}"), flush=True)
+                       f"{stats['tokens'] / (time.time() - t_start):.0f} tok/s{peak}", (w_before, w_new, w_total)), flush=True)
     add_run(out, {"new_rows": new_rows, "seconds": time.time() - t_start, **stats,
                   "finished_at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
