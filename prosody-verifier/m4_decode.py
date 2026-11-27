@@ -410,7 +410,7 @@ def run_sample(args, model, tok, device, rows: list[dict], out: Path) -> None:
                     hit = (new == eos).nonzero()
                     if len(hit):
                         n_tok, finished = int(hit[0].item()) + 1, True
-                    rec = {k: v for k, v in rows[i].items() if k not in ("idx", "sft_prompt")}
+                    rec = {k: v for k, v in rows[i].items() if k != "idx"}      # sft_prompt stays: the input is part of the record
                     rec.update({"sample_idx": s, "generated_text": tok.decode(new, skip_special_tokens=True).strip(),
                                 "gen_tokens": n_tok, "finished_with_eos": finished,
                                 "m4": {"config": {"method": "sample"}, "prefill_tokens": lens[i],

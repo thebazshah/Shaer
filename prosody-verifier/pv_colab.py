@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.5.4"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.6.0"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -1028,6 +1028,25 @@ def m4_score(pv: PVConfig, split: str, workers: int = 0) -> None:
     _score_runs(pv, m4_dir(pv, split), "M4", workers)
 
 
+def _export(pv: PVConfig, runs_dir: pathlib.Path, m3_dir: pathlib.Path, split: str, out: pathlib.Path,
+            variant_data: dict | None = None) -> pathlib.Path:
+    args = [HERE / "export_samples.py", "--runs-dir", runs_dir, "--m3-dir", m3_dir, "--split", split, "--out-dir", out]
+    for run, folder in (variant_data or {}).items():
+        args += ["--variant-data", f"{run}={folder}"]
+    pv.run(args, label=f"export {split} samples", quiet=False)
+    return out
+
+
+@_phase('m4')
+def m4_export(pv: PVConfig, split: str) -> pathlib.Path:
+    """Every poem of every M4 run of a split with its input prompt, the human poem, the scorer's fields, the verifier's verdicts
+    in both modes and the generation accounting: m4/<split>/export/<run>.csv and .jsonl, and all_runs.csv / .jsonl for analysis.
+    Run it after m4_score. Prompts that a run did not store are looked up from the dataset by id."""
+    _need_env(pv)
+    d = m4_dir(pv, split)
+    return _export(pv, d / "runs", d / "m3", split, d / "export")
+
+
 @_phase('m4', 'm1/splits/train.jsonl')
 def m4_report(pv: PVConfig, split: str, reps: int = 1000) -> str:
     """Summarise the M4 runs of a split (m4/<split>/m4_report.md and m4_summary.json on Drive)."""
@@ -1224,6 +1243,19 @@ def m5_score(pv: PVConfig, split: str = "test", workers: int = 0) -> None:
     """Score the M5 runs like M4's: the repository's scorer and the verifier (both modes). CPU is enough."""
     _need_env(pv)
     _score_runs(pv, _need(pv, m5_dir(pv) / split), "M5", workers)
+
+
+@_phase('m5/test', 'm5/variants.json')
+def m5_export(pv: PVConfig, split: str = "test") -> pathlib.Path:
+    """Like m4_export for the M5 systems: m5/<split>/export/. The 2a/2b/2c runs get their prompts from their own training-set
+    folders (with the rhyme line), the baseline systems from the dataset. Run it after m5_score."""
+    _need_env(pv)
+    d = m5_dir(pv) / split
+    special = {}
+    for name, v in _variants(pv).items():
+        if v.get("data"):
+            special[f"m5_{name}"] = str(_need(pv, v["data"]))
+    return _export(pv, d / "runs", d / "m3", split, d / "export", special)
 
 
 @_phase('m5/test', 'm5/labels/test.jsonl', 'm1/splits/train.jsonl')

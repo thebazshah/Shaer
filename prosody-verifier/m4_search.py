@@ -312,7 +312,7 @@ def state_record(s: PoemState, row: dict, config: dict) -> dict:
     """An output row in the schema of evaluation/generate_shaer_test.py (read by score_meter_count.py), plus the search
     accounting."""
     rec = {k: row.get(k) for k in ("id", "base_meter", "form", "requested_bayts", "requested_num_lines", "length_bucket",
-                                   "description", "enhanced_description", "reference_completion")}
+                                   "description", "enhanced_description", "reference_completion", "sft_prompt")}
     if row.get("requested_rawi") is not None:          # M5 prompts that name the rhyme letter
         rec["requested_rawi"] = row["requested_rawi"]
     rec.update({

@@ -452,3 +452,41 @@ def test_training_eta_counts_the_pauses_for_evaluation(monkeypatch):
         out = bars._measured("Training", float(step), 1000.0, clock[0])
     speed = float(re.search(r"\(([\d.]+) s/it\)", out).group(1))
     assert 24.5 < speed < 26, out                      # the average pace, pauses included (not 10)
+
+
+def test_every_poem_is_exported_with_its_prompt_and_scores(tmp_path):
+    import csv
+    import json
+    import export_samples as X
+    run = tmp_path / "runs" / "i1_n4"
+    m3 = tmp_path / "m3" / "i1_n4"
+    run.mkdir(parents=True)
+    m3.mkdir(parents=True)
+    gens = [{"id": "shaer_eval_000001", "sample_idx": 0, "generated_text": "سطر ١\nسطر ٢", "base_meter": "الطويل", "form": "تام",
+             "requested_bayts": 1, "requested_num_lines": 2, "reference_completion": "مرجع", "gen_tokens": 12,
+             "sft_prompt": "المطلوب: قصيدة"},
+            {"id": "shaer_eval_000002", "sample_idx": 1, "generated_text": "سطر", "base_meter": "الكامل", "form": "تام",
+             "requested_bayts": 2, "requested_num_lines": 4, "gen_tokens": 5}]            # an older run: no stored prompt
+    (run / "generations.jsonl").write_text("".join(json.dumps(g, ensure_ascii=False) + "\n" for g in gens), encoding="utf-8")
+    (run / "scored.jsonl").write_text("".join(json.dumps({"id": g["id"], "sample_idx": g["sample_idx"], "meter": 0.9,
+                                                          "count_adherence": 1.0}) + "\n" for g in gens))
+    rec = lambda g, ok: {"key": f"{g['id']}#{g['sample_idx']}", "ok": ok, "meter_ok": ok, "rhyme_ok": True, "count_ok": True,
+                         "lines": 2, "issues": ["israf"], "target": {"bayt_ok": [True, False]}}
+    for mode, oks in (("letters", (True, False)), ("binding", (False, False))):
+        (m3 / f"{mode}.jsonl").write_text("".join(json.dumps(rec(g, ok)) + "\n" for g, ok in zip(gens, oks)))
+    rows = X.export_run(run, tmp_path / "m3", "i1_n4", {"shaer_eval_000002": "prompt from the dataset"})
+    assert rows[0]["prompt"] == "المطلوب: قصيدة" and rows[1]["prompt"] == "prompt from the dataset"
+    assert (rows[0]["valid_letters"], rows[0]["valid_binding"], rows[1]["valid_letters"]) == (True, False, False)
+    assert rows[0]["bayts_on_meter_letters"] == 1 and rows[0]["bayts"] == 2 and rows[0]["issues_letters"] == "israf"
+    X.write_csv(tmp_path / "out.csv", rows)
+    back = list(csv.DictReader(open(tmp_path / "out.csv", encoding="utf-8-sig")))
+    assert back[0]["generated_text"] == "سطر ١\nسطر ٢" and back[0]["run"] == "i1_n4" and list(back[0]) == X.COLUMNS
+
+
+def test_new_generation_rows_keep_their_input_prompt():
+    import m4_search
+    from m4_search import PoemState
+    row = {"id": "x", "base_meter": "الطويل", "form": "تام", "requested_bayts": 1, "requested_num_lines": 2,
+           "sft_prompt": "the exact prompt", "reference_completion": "r"}
+    s = PoemState("x", "tawil", "tam", 2, [1, 2, 3], 3)
+    assert m4_search.state_record(s, row, {})["sft_prompt"] == "the exact prompt"
