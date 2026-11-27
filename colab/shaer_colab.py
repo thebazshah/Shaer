@@ -23,7 +23,7 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.16.2"
+__version__ = "1.16.3"
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.16.0"
 
@@ -268,12 +268,14 @@ class _Bars:
 
     Rate and ETA are measured here from the updates themselves (median of the recent per-update rates), not taken from tqdm:
     after a resume the Trainer's bar jumps from 0 to the resumed step in one update, which makes tqdm's average rate far too fast
-    and its ETA grow for hours. The median ignores that one jump; until three updates are seen no ETA is shown.
+    and its ETA grow for hours. The median ignores that one jump; until three updates are seen no ETA is shown. After five
+    minutes the ETA uses the average rate since the run began, so evaluation and checkpoint pauses are counted.
     """
 
     def __init__(self) -> None:
         self.state: dict = {}
         self.samples: dict = {}
+        self.first: dict = {}
 
     @staticmethod
     def _number(text: str) -> float | None:
@@ -295,6 +297,13 @@ class _Bars:
         if len(rates) < 3:
             return ""
         rate = sorted(rates)[len(rates) // 2]       # items per second
+        first = self.first.setdefault(desc, samples[0])
+        if n < first[1]:
+            self.first[desc] = first = samples[0]
+        if now - first[0] >= 300 and n > first[1]:
+            # After 5 minutes use the average since this run began: it includes the pauses for evaluation, the probe generation
+            # and checkpoint saves, which the median of the step-to-step rates leaves out (it made the ETA far too hopeful).
+            rate = (n - first[1]) / (now - first[0])
         if rate <= 0:
             return ""
         speed = f"{1 / rate:.1f} s/it" if rate < 1 else f"{rate:,.1f} it/s"

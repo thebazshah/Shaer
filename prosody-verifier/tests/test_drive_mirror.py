@@ -438,3 +438,17 @@ def test_the_eta_counts_work_not_poems():
     weighted = int(re.search(r"ETA ~(\d+)", D._bar(500, 1000, t0, 500, "", (0.0, 100.0, 1000.0))).group(1))
     assert plain == 10 and weighted == 90               # half the poems, a tenth of the work: nine times longer to go
     assert D.poem_work({"requested_num_lines": 40}, True) == 1600 and D.poem_work({"requested_num_lines": 4}, False) == 4
+
+
+def test_training_eta_counts_the_pauses_for_evaluation(monkeypatch):
+    """Steps of 10 s, but a 5-minute evaluation every 20 steps: the median step rate says 10 s/step, the real pace is 25 s."""
+    import re
+    clock = [1000.0]
+    monkeypatch.setattr(sc.time, "time", lambda: clock[0])
+    bars = sc._Bars()
+    out = ""
+    for step in range(1, 101):
+        clock[0] += 10 + (300 if step % 20 == 0 else 0)
+        out = bars._measured("Training", float(step), 1000.0, clock[0])
+    speed = float(re.search(r"\(([\d.]+) s/it\)", out).group(1))
+    assert 24.5 < speed < 26, out                      # the average pace, pauses included (not 10)
