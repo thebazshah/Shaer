@@ -42,7 +42,7 @@ import time
 
 import shaer_colab as sc
 
-__version__ = "1.6.0"                    # bump on every change of the prosody code (and the notebook's version with it)
+__version__ = "1.6.1"                    # bump on every change of the prosody code (and the notebook's version with it)
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.0.0"              # the oldest notebook version whose cells still match this code
 
@@ -575,7 +575,7 @@ def _score(pv: PVConfig, gens: pathlib.Path, scored: pathlib.Path, label: str) -
     if total and _lines(scored) >= total:
         print(f"{label}: already scored ({total:,} rows) -> {scored}")
         return scored
-    pv.run([HERE / "meter_score_batched.py", "--input-jsonl", gens, "--output-jsonl", scored], label=label)
+    pv.run([HERE / "meter_score_batched.py", "--input-jsonl", gens, "--output-jsonl", scored], label=label, hardware=True)
     return scored
 
 
@@ -814,7 +814,7 @@ def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding
     extra = ["--workers", str(workers)] if workers else []
     for name, scored in systems.items():
         pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", name, "--out-dir", out,
-                "--modes", ",".join(modes), "--limit", str(limit), *extra], label=f"M3 {name}")
+                "--modes", ",".join(modes), "--limit", str(limit), *extra], label=f"M3 {name}", hardware=True)
     if controls:
         for kind in ("wrong_meter", "mixed_rhyme"):
             src = out / "controls" / f"{kind}.jsonl"
@@ -822,7 +822,7 @@ def m3_rescore(pv: PVConfig, limit: int = 0, modes: tuple = ("letters", "binding
                 pv.run([HERE / "m3_rescore.py", "control", "--scored", systems["reference"], "--kind", kind, "--out", src],
                        label=f"control {kind}")
             pv.run([HERE / "m3_rescore.py", "score", "--scored", src, "--system", f"control_{kind}", "--out-dir", out,
-                    "--modes", "letters", "--limit", str(limit), *extra], label=f"M3 control {kind}")
+                    "--modes", "letters", "--limit", str(limit), *extra], label=f"M3 control {kind}", hardware=True)
     sc._finish(t0, f"M3 re-scoring -> {out}")
 
 
@@ -889,7 +889,7 @@ def m4_generate(pv: PVConfig, split: str, run: str, *, subset: int = 0, num_samp
     args += ["--num-samples", str(num_samples)] if mode == "sample" else ["--k", str(k), "--rounds", str(rounds)]
     if mode == "search" and run.endswith("_b"):
         args += ["--check", "binding"]
-    _resuming_generation(lambda: pv.run([*args, *(extra or [])], label=f"M4 {split} {run}"), out, f"M4 {split} {run}")
+    _resuming_generation(lambda: pv.run([*args, *(extra or [])], label=f"M4 {split} {run}", hardware=True), out, f"M4 {split} {run}")
     return out
 
 
@@ -967,7 +967,7 @@ def m4_selfcheck(pv: PVConfig, prompts: int = 16) -> dict:
     _need_gpu("the M4 self-check")
     out = m4_dir(pv, "eval") / "selfcheck.json"
     pv.run([HERE / "m4_decode.py", "selfcheck", "--split", "eval", "--subset", str(prompts), "--out", out,
-            "--base-model", cfg.base_model], label="M4 self-check")
+            "--base-model", cfg.base_model], label="M4 self-check", hardware=True)
     res = json.loads(out.read_text())
     ok = selfcheck_passed(res)
     print("self-check:", "PASSED" if ok else "FAILED: do not start the long runs; send me selfcheck.json", res)
@@ -1017,7 +1017,7 @@ def _score_runs(pv: PVConfig, d: pathlib.Path, label: str, workers: int = 0) -> 
         if _lines(scored) < _lines(gens):
             _score(pv, gens, scored, f"scoring {run.name}")      # continues after the rows already scored
         pv.run([HERE / "m3_rescore.py", "score", "--scored", scored, "--system", run.name, "--out-dir", d / "m3", *extra],
-               label=f"{label} verifier {run.name}")
+               label=f"{label} verifier {run.name}", hardware=True)
 
 
 @_phase('m4')
@@ -1129,7 +1129,7 @@ def m5_relabel(pv: PVConfig, workers: int = 0) -> pathlib.Path:
     out = m5_dir(pv) / "labels"
     t0 = sc._start("M5: labelling the corpus with the verifier", "about 116k poems; every finished chunk is on Drive")
     _resuming_generation(lambda: pv.run([HERE / "m5_data.py", "relabel", "--source", M5_SOURCE, "--out", out,
-                                         *(["--workers", str(workers)] if workers else [])], label="M5 relabel"),
+                                         *(["--workers", str(workers)] if workers else [])], label="M5 relabel", hardware=True),
                          out, "M5 relabel")
     sc._finish(t0, f"M5 labels -> {out}")
     return out
@@ -1213,7 +1213,7 @@ def m5_generate(pv: PVConfig, system: str, split: str = "test", subset: int = 0)
     out.parent.mkdir(parents=True, exist_ok=True)
     _resuming_generation(lambda: pv.run([HERE / "m4_decode.py", "sample", "--split", split, "--subset", str(subset),
                                          "--num-samples", "1", "--out", out, "--base-model", pv.sc_cfg.base_model,
-                                         "--dataset-id", data, *adapter], label=f"M5 generation {name}"),
+                                         "--dataset-id", data, *adapter], label=f"M5 generation {name}", hardware=True),
                          out, f"M5 generation {name}")
     return out
 
@@ -1296,7 +1296,7 @@ def m5_selftrain(pv: PVConfig, round_no: int, base: str, prompts: int = 4000, k:
         _resuming_generation(lambda: pv.run([HERE / "m4_decode.py", "search", "--split", "train", "--subset", str(prompts),
                                              "--subset-seed", str(2026 + round_no), "--k", str(k), "--rounds", str(rounds),
                                              "--out", gens, "--base-model", pv.sc_cfg.base_model, "--dataset-id", root_data,
-                                             "--adapter-path", adapter], label=f"2c r{round_no} search"),
+                                             "--adapter-path", adapter], label=f"2c r{round_no} search", hardware=True),
                              gens, f"2c r{round_no} search")
     accepted = d / "accepted.jsonl"
     pv.run([HERE / "m5_data.py", "accept", "--generations", gens, "--source", M5_SOURCE, "--base", root_data,

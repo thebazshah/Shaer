@@ -23,7 +23,7 @@ from __future__ import annotations
 # (section 2 prints the code version, so you can see which code runs).
 # NOTEBOOK_REQUIRED: the oldest reproduce_shaer_a100.ipynb whose cells work with this code; raise it only when cells change
 # in a way older copies cannot handle. Below it, section 2 says to reopen the notebook.
-__version__ = "1.16.3"
+__version__ = "1.16.4"
 __updated__ = "2026-11-25 UTC"
 NOTEBOOK_REQUIRED = "1.16.0"
 
@@ -179,6 +179,52 @@ def _start(title: str, expect: str | None = None) -> float:
 
 def _finish(t0: float, title: str) -> None:
     print(f"✔ {title}: done in {_fmt(time.time() - t0)}", flush=True)
+
+
+def hardware_report() -> str:
+    """One block describing the machine a step runs on: CPU (model, cores this session may use, load), memory, disk and the
+    GPU (name, memory, driver, CUDA). Printed at the start of every training, generation and scoring step and written to
+    the training log, so a log says which hardware its speed belongs to."""
+    lines = []
+    try:
+        model = next((l.split(":", 1)[1].strip() for l in pathlib.Path("/proc/cpuinfo").read_text().splitlines()
+                      if l.startswith("model name")), "unknown CPU")
+    except OSError:
+        model = "unknown CPU"
+    try:
+        usable = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        usable = os.cpu_count() or 0
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        load = float("nan")
+    lines.append(f"  CPU : {model} | {usable} usable core(s) of {os.cpu_count()} | load now {load:.1f}")
+    try:
+        mem = {k: int(v.split()[0]) for k, v in (l.split(":", 1) for l in pathlib.Path("/proc/meminfo").read_text().splitlines())}
+        lines.append(f"  RAM : {mem['MemTotal'] / 2**20:.1f} GB total, {mem['MemAvailable'] / 2**20:.1f} GB available")
+    except (OSError, KeyError, ValueError):
+        lines.append("  RAM : unknown")
+    try:
+        du = shutil.disk_usage("/content" if os.path.isdir("/content") else ".")
+        lines.append(f"  Disk: {du.free / 2**30:.0f} GB free of {du.total / 2**30:.0f} GB (the VM's local disk)")
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used,driver_version,compute_cap",
+                              "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
+        cuda = ""
+        head = subprocess.run(["nvidia-smi"], capture_output=True, text=True, timeout=15).stdout
+        m = re.search(r"CUDA Version:\s*([\d.]+)", head)
+        cuda = f", CUDA {m.group(1)}" if m else ""
+        for i, row in enumerate(out):
+            name, total, used, driver, cap = (x.strip() for x in row.split(","))
+            lines.append(f"  GPU : #{i} {name} | {int(total) / 1024:.1f} GB ({int(used) / 1024:.1f} GB in use) | driver {driver}{cuda} | compute {cap}")
+        if not out:
+            lines.append("  GPU : none")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        lines.append("  GPU : none (or nvidia-smi is not available)")
+    return "\n".join(lines)
 
 
 def _gpu_stats() -> tuple | None:
@@ -361,7 +407,7 @@ def _die_with_parent(cmd: list[str]) -> list[str]:
 
 def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = False, check: bool = True, tail: int | None = None,
         drop: tuple = ("warn",), stall_after: int | None = None, heartbeat: int = 20, progress=None, log_path=None,
-        on_start=None, stop_on_interrupt: bool = False) -> int:
+        on_start=None, stop_on_interrupt: bool = False, hardware: bool = False) -> int:
     """Run a command (no shell), stream its output into the cell, and watch it.
 
     Shown as it is produced: normal lines, plus tqdm bars as throttled bar lines. Hidden: lines containing a word of `drop`.
@@ -371,8 +417,14 @@ def run(cmd: list, *, label: str = "step", cwd=None, env=None, quiet: bool = Fal
     StepStalled is raised. Raises RuntimeError on a non-zero exit when `check`.
     `log_path`: also append every output line, unfiltered, to this file. `on_start(proc)`: called right after the process starts.
     `stop_on_interrupt`: when the cell is stopped (KeyboardInterrupt), stop the command too (SIGTERM, then SIGKILL) instead of
-    leaving it running.
+    leaving it running. `hardware`: first print (and write to `log_path`) the machine's CPU, memory and GPU (hardware_report()).
     """
+    if hardware:
+        report = hardware_report()
+        print(f"{label}: hardware\n{report}", flush=True)
+        if log_path:
+            with open(log_path, "a", encoding="utf-8", errors="replace") as h:
+                h.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC | hardware for {label}\n{report}\n")
     proc = subprocess.Popen(_die_with_parent([str(c) for c in cmd]), cwd=cwd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=stop_on_interrupt)
     if on_start:
@@ -574,7 +626,7 @@ def _score_and_summarise(cfg: Config, key: str) -> None:
     run([cfg.py, "score_meter_count.py", "--input-jsonl", f"../runs/{key}/generations.jsonl",
          "--output-jsonl", f"../runs/{key}/scored.jsonl"], label=f"scoring {key.upper()}", cwd=repo / "evaluation",
         env=cfg.env(CUDA_VISIBLE_DEVICES=""), stall_after=cfg.stall_seconds, heartbeat=10,
-        progress=lambda: (_count_lines(scored), total))
+        progress=lambda: (_count_lines(scored), total), hardware=True)
     run([cfg.py, "evaluation/summarize_structural.py", "--scored", f"runs/{key}/scored.jsonl", "--out", f"runs/{key}/summary.json"],
         label="summary", cwd=repo, env=cfg.env(), quiet=True, stall_after=300)
     _finish(t0, f"scoring {key.upper()}")
@@ -634,7 +686,7 @@ def run_generation(cfg: Config, step: str, extra_args: list | None = None) -> No
         run([cfg.py, "-u", "evaluation/generate_shaer_test.py", *adapter_args, "--base-model", cfg.base_model,
              "--out", f"runs/{step}/generations.jsonl", "--num-samples", str(cfg.num_samples), "--batch-size", cfg.gen_batch_size,
              *extra_args], label=f"{step.upper()} generation", cwd=cfg.repo_dir, env=cfg.env(), stall_after=cfg.stall_seconds,
-            stop_on_interrupt=True)          # the stop button stops the generator too (not left running, writing the same file)
+            stop_on_interrupt=True, hardware=True)          # the stop button stops the generator too (not left running, writing the same file)
     except KeyboardInterrupt:
         done = _lines(cfg.runs / step / "generations.jsonl")
         print(f"■ {step.upper()} generation stopped: {done:,} poems are saved in {cfg.runs / step / 'generations.jsonl'} "
@@ -754,7 +806,7 @@ def train_smoke_test(cfg: Config) -> None:
     thread.start()
     try:
         run([cfg.py, "-u", "train_sft.py", "--mode", "sanity", "--run_name", f"sanity_{cfg.run_name}"], label="smoke test",
-            cwd=pathlib.Path(cfg.repo_dir, "sft"), env=cfg.env(), stall_after=cfg.stall_seconds)
+            cwd=pathlib.Path(cfg.repo_dir, "sft"), env=cfg.env(), stall_after=cfg.stall_seconds, hardware=True)
     finally:
         stop.set()
         thread.join(timeout=5)
@@ -1333,7 +1385,8 @@ def _train_foreground(cfg: Config, cmd: list, env: dict, log: pathlib.Path, auto
                   flush=True)
             try:
                 run(cmd, label="training", cwd=pathlib.Path(cfg.repo_dir, "sft"), env=env, stall_after=cfg.stall_seconds,
-                    log_path=log, on_start=lambda proc: _pid_file(cfg).write_text(str(proc.pid)), stop_on_interrupt=True)
+                    log_path=log, on_start=lambda proc: _pid_file(cfg).write_text(str(proc.pid)), stop_on_interrupt=True,
+                    hardware=True)
                 break
             except StepStalled as exc:
                 if not auto_restart or restarts >= max_restarts:

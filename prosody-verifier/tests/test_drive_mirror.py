@@ -490,3 +490,21 @@ def test_new_generation_rows_keep_their_input_prompt():
            "sft_prompt": "the exact prompt", "reference_completion": "r"}
     s = PoemState("x", "tawil", "tam", 2, [1, 2, 3], 3)
     assert m4_search.state_record(s, row, {})["sft_prompt"] == "the exact prompt"
+
+
+def test_a_step_starts_with_the_hardware_report_in_the_cell_and_the_log(tmp_path, monkeypatch, capsys):
+    import stat
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    exe = fake / "nvidia-smi"
+    exe.write_text("#!/bin/sh\nif [ \"$1\" = \"--query-gpu=name,memory.total,memory.used,driver_version,compute_cap\" ]; then "
+                   "echo 'NVIDIA L4, 23034, 512, 550.54, 8.9'; else echo '| NVIDIA-SMI 550.54   CUDA Version: 12.4 |'; fi\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{fake}:{os.environ['PATH']}")
+    text = sc.hardware_report()
+    assert "NVIDIA L4" in text and "22.5 GB" in text and "CUDA 12.4" in text and "usable core(s)" in text and "RAM" in text
+    log = tmp_path / "train.log"
+    sc.run([sys.executable, "-c", "print('hi')"], label="training", log_path=log, hardware=True)
+    out = capsys.readouterr().out
+    assert "training: hardware" in out and "GPU : #0 NVIDIA L4" in out
+    assert "hardware for training" in log.read_text() and "NVIDIA L4" in log.read_text()
